@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/* Base app shell stays neutral so the clinician surface reads predictably.
+   The patient surface layers a warmer "care" palette on top (tokens below). */
+:root {
+  --background: #eef0f2;
+  --foreground: #1a1a1a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-newsreader);
+
+  /* Patient "care" palette — warm paper, pine accent, calm clay for warnings.
+     Deliberately off the clinical electric-blue default. */
+  --color-paper: #fbfaf7;
+  --color-paper-2: #f4f1ea;
+  --color-ink: #1f2421;
+  --color-muted: #6b7168;
+  --color-line: #e7e3da;
+  --color-care: #0e6e5c;
+  --color-care-strong: #0b5647;
+  --color-care-wash: #eaf2ee;
+  --color-clay: #b4472e;
+  --color-clay-wash: #fbeee9;
+  --color-ochre: #a9761d;
+  --color-ochre-wash: #f6efdc;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    Roboto, Arial, sans-serif;
+}
+
+/* Staggered reveal for the moment the plan lands on the patient's phone —
+   the demo climax. Sections fade up in sequence; disabled for reduced motion. */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.reveal {
+  animation: reveal-up 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Soft-light-glass patient surface. A pale mint→sky canvas behind frosted,
+   translucent cards. High-contrast ink text so it stays legible and calm.
+   --------------------------------------------------------------------------- */
+.app-canvas {
+  background:
+    radial-gradient(120% 78% at 0% 0%, rgba(16, 110, 92, 0.12), transparent 58%),
+    radial-gradient(120% 78% at 100% 4%, rgba(72, 122, 190, 0.12), transparent 55%),
+    radial-gradient(140% 90% at 50% 100%, rgba(16, 110, 92, 0.07), transparent 60%),
+    linear-gradient(180deg, #f2f7f5 0%, #eef2f7 100%);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px) saturate(1.35);
+  -webkit-backdrop-filter: blur(20px) saturate(1.35);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 10px 30px -14px rgba(24, 44, 38, 0.22);
+}
+
+.glass-soft {
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.glass-nav {
+  background: rgba(248, 251, 250, 0.72);
+  backdrop-filter: blur(24px) saturate(1.35);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+}
