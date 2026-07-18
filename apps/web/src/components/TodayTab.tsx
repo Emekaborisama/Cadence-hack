@@ -1,29 +1,23 @@
 import { useState } from 'react';
 import { Button } from '@heroui/react';
-import type { CheckInResponse, HandoffPlan } from '@cadence/shared';
+import type { CheckInResponse, DailyTask, HandoffPlan } from '@cadence/shared';
+import { buildDailyTasks } from '@cadence/shared';
 import { toggleTask } from '../api.js';
 import type { ClientState } from '../api.js';
 import { downloadScheduleIcs } from '../lib/calendar.js';
 
-// Today's actions, each led by its real photographic object (monogram move).
-type Task = {
-  id: string;
-  obj: string;
-  title: string;
-  detail: string;
-  when: string;
-  tint: string; // soft colored tile so the near-white object pops
-  guide?: string; // key into GUIDES for a "show me how" walkthrough
-};
-
-const TASKS: Task[] = [
-  { id: 'metformin-am', obj: 'metformin-pill.png', title: 'Metformin 1000mg', detail: 'With breakfast', when: '8:00', tint: '#e8f1ff' },
-  { id: 'semaglutide', obj: 'semaglutide-pen.png', title: 'Semaglutide injection', detail: 'Weekly · your day', when: 'Sun', tint: '#e4f6f2', guide: 'semaglutide' },
-  { id: 'bp', obj: 'bp-cuff.png', title: 'Blood-pressure check', detail: 'Mornings are best', when: '9:00', tint: '#f0ecfb', guide: 'bp' },
-  { id: 'walk', obj: 'walking-shoe.png', title: 'Evening walk', detail: '20 min after your meal', when: '19:30', tint: '#e9f6ea' },
-  { id: 'meal', obj: 'plate-veg.png', title: 'Log a meal', detail: 'Snap it, protein first', when: 'Anytime', tint: '#fdeee0' },
-  { id: 'water', obj: 'water-glass.png', title: 'Stay hydrated', detail: 'Keep sipping through the day', when: 'Goal', tint: '#e6f2fd' },
-];
+// Visuals per task kind — each row led by its photographic object (monogram move).
+function taskVisual(t: DailyTask): { obj: string; tint: string; guide?: string } {
+  if (t.kind === 'medication') {
+    return t.glp1
+      ? { obj: 'semaglutide-pen.png', tint: '#e4f6f2', guide: 'semaglutide' }
+      : { obj: 'metformin-pill.png', tint: '#e8f1ff' };
+  }
+  if (t.kind === 'monitoring') return { obj: 'bp-cuff.png', tint: '#f0ecfb', guide: 'bp' };
+  if (t.kind === 'movement') return { obj: 'walking-shoe.png', tint: '#e9f6ea' };
+  if (t.kind === 'diet') return { obj: 'water-glass.png', tint: '#e6f2fd' };
+  return { obj: 'plate-veg.png', tint: '#fdeee0' };
+}
 
 const delay = (i: number) => ({ animationDelay: `${i * 70}ms` });
 
@@ -46,6 +40,10 @@ export default function TodayTab({
   onShowGuide: (key: string) => void;
   onState: (state: ClientState) => void;
 }) {
+  // The checklist IS the plan: derived from what the clinician sent, so the
+  // Plan tab's actions and the streak checklist can never drift apart.
+  const tasks = buildDailyTasks(plan);
+
   // Server-tracked completions: survive refresh, other devices, and restarts.
   // Optimistic local echo so taps feel instant while the action round-trips.
   const [pending, setPending] = useState<Set<string>>(new Set());
@@ -66,8 +64,8 @@ export default function TodayTab({
         }),
       );
   };
-  const completed = TASKS.filter((t) => done.has(t.id)).length;
-  const pct = completed / TASKS.length;
+  const completed = tasks.filter((t) => done.has(t.id)).length;
+  const pct = tasks.length ? completed / tasks.length : 0;
 
   return (
     <div
@@ -110,7 +108,7 @@ export default function TodayTab({
             {streakDays}-day streak
           </div>
           <div className="text-[13.5px] text-slate">
-            {completed} of {TASKS.length} done today · keep it going
+            {completed} of {tasks.length} done today · keep it going
           </div>
           <div className="mt-2 flex gap-1.5">
             {Array.from({ length: 7 }).map((_, i) => (
@@ -195,8 +193,9 @@ export default function TodayTab({
           </button>
         </div>
         <ul className="space-y-2.5">
-          {TASKS.map((t) => {
+          {tasks.map((t) => {
             const isDone = done.has(t.id);
+            const v = taskVisual(t);
             return (
               <li key={t.id}>
                 <div className="mono-card rounded-3xl p-2.5">
@@ -208,10 +207,10 @@ export default function TodayTab({
                       {/* photographic 3D object on a soft colored tile so it pops */}
                       <span
                         className="grid h-[74px] w-[74px] shrink-0 place-items-center overflow-hidden rounded-[20px]"
-                        style={{ background: t.tint }}
+                        style={{ background: v.tint }}
                       >
                         <img
-                          src={`/objects/${t.obj}`}
+                          src={`/objects/${v.obj}`}
                           alt=""
                           className={`h-[88px] w-[88px] object-contain mix-blend-multiply transition ${isDone ? 'opacity-45 grayscale' : ''}`}
                         />
@@ -238,9 +237,9 @@ export default function TodayTab({
                       ✓
                     </button>
                   </div>
-                  {t.guide ? (
+                  {v.guide ? (
                     <button
-                      onClick={() => onShowGuide(t.guide!)}
+                      onClick={() => onShowGuide(v.guide!)}
                       className="ml-[86px] mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-mint-wash px-3 py-1.5 text-[12.5px] font-semibold text-mint-strong"
                     >
                       <span className="text-[10px]">▶</span> Show me how

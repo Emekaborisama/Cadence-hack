@@ -158,6 +158,7 @@ export interface PatientRecord {
   transcript?: string; // source consult transcript the plan was extracted from
   profile: PatientProfile | null; // set when the patient onboards (consent)
   planSent: boolean;
+  planSentAt?: string; // first-send timestamp — anchors titration progress
   draftPlan: HandoffPlan | null; // AI draft under clinician review — never patient-visible
   plan: HandoffPlan | null;
   latestResponse: CheckInResponse | null;
@@ -368,9 +369,67 @@ export const HANDOFF_PLAN_FIXTURE: HandoffPlan = {
 // A retention signal shown on the patient's home. Fixture value for the demo.
 export const STREAK_DAYS = 6;
 
-// Number of daily tasks on the patient's Today checklist — used by both the
-// patient ring and the clinician's adherence view to compute completion %.
+// Fallback task count when a record has no plan yet.
 export const DAILY_TASK_COUNT = 6;
+
+// A daily-checklist item DERIVED FROM THE PLAN — the patient's Today list and
+// the clinician's completion math both come from this one builder, so the
+// checklist always matches what the clinician actually prescribed.
+export interface DailyTask {
+  id: string; // stable: derived from the plan item's id
+  title: string;
+  detail: string;
+  when: string;
+  kind: 'medication' | 'monitoring' | 'movement' | 'diet' | 'other';
+  weekly?: boolean;
+  glp1?: boolean;
+}
+
+export function buildDailyTasks(plan: HandoffPlan | null): DailyTask[] {
+  if (!plan) return [];
+  const tasks: DailyTask[] = [];
+  for (const m of plan.medications) {
+    const glp1 = /semaglutide|ozempic|wegovy|tirzepatide|glp/i.test(m.name);
+    tasks.push({
+      id: `task-${m.id}`,
+      title: glp1 ? `${m.name} injection` : `${m.name} ${m.dose}`.trim(),
+      detail: m.schedule,
+      when: glp1 ? 'Weekly' : 'Daily',
+      kind: 'medication',
+      weekly: glp1,
+      glp1,
+    });
+  }
+  for (const a of plan.lifestyleActions) {
+    tasks.push({
+      id: `task-${a.id}`,
+      title: a.title,
+      detail: a.detail,
+      when: a.category === 'movement' ? 'Evening' : 'Today',
+      kind: a.category,
+    });
+  }
+  return tasks;
+}
+
+// Which titration step the patient is on, from weeks elapsed since the plan
+// was sent. Reads the starting week out of each label ("Weeks 5–8" → 5,
+// "From week 9" → 9); falls back to 4-week blocks when a label has no number.
+export function currentTitrationStepIndex(
+  steps: TitrationStep[],
+  planSentAt?: string,
+): number {
+  if (!steps.length || !planSentAt) return 0;
+  const week =
+    Math.floor((Date.now() - new Date(planSentAt).getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
+  let idx = 0;
+  steps.forEach((s, i) => {
+    const m = s.label.match(/(\d+)/);
+    const startWeek = m ? Number(m[1]) : i * 4 + 1;
+    if (week >= startWeek) idx = i;
+  });
+  return idx;
+}
 
 // Seeded fasting-glucose history so the trend has context when the plan lands.
 // Morning readings trending down over the past week toward the target ceiling.

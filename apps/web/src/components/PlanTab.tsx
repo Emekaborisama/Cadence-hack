@@ -1,4 +1,5 @@
 import type { Explainer, HandoffPlan, LifestyleAction, Medication } from '@cadence/shared';
+import { currentTitrationStepIndex } from '@cadence/shared';
 import TitrationTimeline from './TitrationTimeline.js';
 import SimplifyCard from './SimplifyCard.js';
 import { downloadScheduleIcs } from '../lib/calendar.js';
@@ -28,13 +29,17 @@ const STATUS: Record<Medication['status'], { label: string; bg: string; fg: stri
 export default function PlanTab({
   patientId,
   plan,
+  planSentAt,
   explainer,
   onExplainerLoaded,
+  onReportSymptom,
 }: {
   patientId: string;
   plan: HandoffPlan;
+  planSentAt?: string;
   explainer: Explainer | null;
   onExplainerLoaded: (e: Explainer) => void;
+  onReportSymptom: (symptom: string) => void;
 }) {
   return (
     <div className="px-5 pb-8 pt-4" style={{ fontFamily: 'var(--font-inter), sans-serif' }}>
@@ -106,7 +111,10 @@ export default function PlanTab({
       {plan.titrationSteps?.length ? (
         <Section index={2} title="Your medication, week by week">
           <div className="mono-card rounded-3xl p-5">
-            <TitrationTimeline steps={plan.titrationSteps} />
+            <TitrationTimeline
+              steps={plan.titrationSteps}
+              currentIndex={currentTitrationStepIndex(plan.titrationSteps, planSentAt)}
+            />
           </div>
         </Section>
       ) : null}
@@ -141,23 +149,27 @@ export default function PlanTab({
       <Section index={4} title="When to get help">
         <div className="space-y-2.5">
           {(plan.redFlags ?? []).map((f) => (
-            <div
+            <button
               key={f.id}
-              className="rounded-3xl border border-[rgba(224,113,79,0.28)] bg-[#fbeadf] p-4"
+              onClick={() => onReportSymptom(f.symptom)}
+              className="block w-full rounded-3xl border border-[rgba(224,113,79,0.28)] bg-[#fbeadf] p-4 text-left transition active:scale-[0.99]"
             >
               <div className="flex items-start gap-2">
                 <span
                   className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
                   style={{ background: '#e0714f' }}
                 />
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="text-[15px] font-semibold" style={{ color: '#c0492b' }}>
                     {f.symptom}
                   </div>
                   <div className="text-[13px] leading-snug text-ink2/70">{f.action}</div>
+                  <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 text-[12px] font-semibold" style={{ color: '#c0492b' }}>
+                    Experiencing this? Tap to tell your care team →
+                  </div>
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </Section>

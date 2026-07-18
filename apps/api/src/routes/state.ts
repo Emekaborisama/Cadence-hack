@@ -487,6 +487,7 @@ stateRouter.post('/', async (req: Request, res: Response) => {
           ...(isUpdate
             ? {}
             : {
+                planSentAt: new Date().toISOString(),
                 glucoseReadings: seedGlucoseHistory(),
                 explainer: null,
                 streakDays: STREAK_DAYS,
