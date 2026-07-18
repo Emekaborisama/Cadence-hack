@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@heroui/react';
 import type { Explainer } from '@cadence/shared';
-import { explain } from '../api.js';
+import { pExplain } from '../api.js';
 
 // Progressive "explain it simpler" trail — tap to keep simplifying a clinical
 // concept until it clicks. Levels are AI-generated from the clinician's own
@@ -26,10 +26,9 @@ export default function SimplifyCard({
     if (explainer || requested.current) return;
     requested.current = true;
     setLoading(true);
-    explain(patientId)
-      .then((state) => {
-        const record = state.records.find((r) => r.id === patientId);
-        if (record?.explainer) onLoaded(record.explainer);
+    pExplain(patientId)
+      .then((view) => {
+        if (view.patient?.explainer) onLoaded(view.patient.explainer);
       })
       .finally(() => setLoading(false));
   }, [explainer, onLoaded, patientId]);

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Button } from '@heroui/react';
 import type { CheckIn, CheckInResponse, CheckInSeverity } from '@cadence/shared';
-import { submitCheckIn } from '../api.js';
+import { pCheckIn } from '../api.js';
+import type { PatientView } from '../api.js';
 
 const SYMPTOMS = ['Nausea', 'Headache', 'Low energy', 'Feeling good'];
 
@@ -49,7 +50,7 @@ export default function CheckInSheet({
   initialSymptom?: string;
   initialSeverity?: CheckInSeverity;
   onClose: () => void;
-  onSubmitted: (response: CheckInResponse) => void;
+  onSubmitted: (response: CheckInResponse, view: PatientView) => void;
 }) {
   const [symptom, setSymptom] = useState(initialSymptom ?? 'Nausea');
   const [severity, setSeverity] = useState<CheckInSeverity>(initialSeverity ?? 'moderate');
@@ -72,9 +73,8 @@ export default function CheckInSheet({
       loggedAt: new Date().toISOString(),
     };
     try {
-      const state = await submitCheckIn(patientId, checkIn);
-      const record = state.records.find((r) => r.id === patientId);
-      if (record?.latestResponse) onSubmitted(record.latestResponse);
+      const view = await pCheckIn(patientId, checkIn);
+      if (view.patient?.latestResponse) onSubmitted(view.patient.latestResponse, view);
     } finally {
       setSubmitting(false);
     }

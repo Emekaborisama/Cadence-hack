@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Button } from '@heroui/react';
 import type { CheckInResponse } from '@cadence/shared';
-import { logGlucose } from '../api.js';
+import { pLogGlucose } from '../api.js';
+import type { PatientView } from '../api.js';
 
 export default function GlucoseSheet({
   patientId,
@@ -10,7 +11,7 @@ export default function GlucoseSheet({
 }: {
   patientId: string;
   onClose: () => void;
-  onLogged: (response: CheckInResponse) => void;
+  onLogged: (response: CheckInResponse, view: PatientView) => void;
 }) {
   const [value, setValue] = useState('6.9');
   const [context, setContext] = useState<'fasting' | 'post-meal'>('fasting');
@@ -19,9 +20,8 @@ export default function GlucoseSheet({
   async function submit() {
     setSubmitting(true);
     try {
-      const state = await logGlucose(patientId, Number(value), context);
-      const record = state.records.find((r) => r.id === patientId);
-      if (record?.latestResponse) onLogged(record.latestResponse);
+      const view = await pLogGlucose(patientId, Number(value), context);
+      if (view.patient?.latestResponse) onLogged(view.patient.latestResponse, view);
     } finally {
       setSubmitting(false);
     }

@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Button } from '@heroui/react';
 import type { CheckInResponse, DailyTask, HandoffPlan } from '@cadence/shared';
 import { buildDailyTasks } from '@cadence/shared';
-import { toggleTask } from '../api.js';
-import type { ClientState } from '../api.js';
+import { pToggleTask } from '../api.js';
+import type { PatientView } from '../api.js';
 import { downloadScheduleIcs } from '../lib/calendar.js';
 
 // Visuals per task kind — each row led by its photographic object (monogram move).
@@ -29,7 +29,7 @@ export default function TodayTab({
   checkInResponse,
   onCheckIn,
   onShowGuide,
-  onState,
+  onView,
 }: {
   patientId: string;
   plan: HandoffPlan;
@@ -38,7 +38,7 @@ export default function TodayTab({
   checkInResponse: CheckInResponse | null;
   onCheckIn: () => void;
   onShowGuide: (key: string) => void;
-  onState: (state: ClientState) => void;
+  onView: (view: PatientView) => void;
 }) {
   // The checklist IS the plan: derived from what the clinician sent, so the
   // Plan tab's actions and the streak checklist can never drift apart.
@@ -54,8 +54,8 @@ export default function TodayTab({
   }
   const toggle = (id: string) => {
     setPending((prev) => new Set(prev).add(id));
-    toggleTask(patientId, id)
-      .then(onState)
+    pToggleTask(patientId, id)
+      .then(onView)
       .finally(() =>
         setPending((prev) => {
           const next = new Set(prev);

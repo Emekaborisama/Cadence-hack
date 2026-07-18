@@ -322,6 +322,21 @@ assert(s.auditLog[0].changes?.some((c) => c.includes('+ red flag: Chest pain')) 
   s.auditLog[0].changes?.some((c) => c.includes('+ protocol: Dizziness')),
   'audit diff shows the additions (+ lines)');
 
+// An abandoned editor Add (blank "New medication") never reaches the patient.
+s = await api({
+  action: 'sendPlan',
+  patientId: meera.id,
+  plan: {
+    medications: [
+      ...rec.plan.medications,
+      { id: 'med-blank', name: 'New medication', dose: '', schedule: '', why: '', status: 'new' },
+    ],
+  },
+});
+rec = s.records.find((r) => r.id === meera.id);
+assert(!rec.plan.medications.some((m) => m.name === 'New medication'),
+  'blank editor leftovers pruned before reaching the patient');
+
 // The new protocol is live: a matching check-in serves ITS steps.
 s = await api({
   action: 'checkIn',
@@ -354,6 +369,21 @@ assert(s.records.some((r) => r.id === meera.id) && s.records.some((r) => r.id ==
   'other records untouched by delete');
 assert(s.inbox.every((i) => i.patientId !== doomed.id),
   "deleted patient's flags leave the clinic inbox");
+
+// ── Patient data isolation: scoped responses carry ONLY the own record ─────
+const scoped = await fetch(`${BASE}/api/state?scope=patient&patientId=${meera.id}`).then((r) => r.json());
+assert(scoped.patient?.id === meera.id, 'scoped GET returns the own record');
+assert(!('records' in scoped) && !('inbox' in scoped) && !('auditLog' in scoped),
+  'scoped GET leaks NO roster, clinic inbox, or audit log');
+const scopedPost = await fetch(`${BASE}/api/state?scope=patient&patientId=${meera.id}`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ action: 'toggleTask', patientId: meera.id, taskId: 'task-med-metformin' }),
+}).then((r) => r.json());
+assert(scopedPost.patient?.id === meera.id && !('records' in scopedPost),
+  'scoped POST responses are isolated too');
+const scopedUnknown = await fetch(`${BASE}/api/state?scope=patient&patientId=CAD-ZZZZ`).then((r) => r.json());
+assert(scopedUnknown.patient === null, 'scoped GET with unknown code → patient null (sign-in validation)');
 
 // ── Explainer: generated per record, cached ────────────────────────────────
 s = await api({ action: 'explain', patientId: meera.id });

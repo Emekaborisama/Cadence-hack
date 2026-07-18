@@ -44,6 +44,30 @@ import { env } from '../env.js';
 
 export const stateRouter: Router = Router();
 
+// ── Patient data isolation ──────────────────────────────────────────────────
+// The patient app opts in with ?scope=patient&patientId=… — every response is
+// then reduced to THAT patient's record only. The roster, clinic inbox, and
+// audit log never cross the wire to a patient device. This is response-level
+// isolation for the demo; production adds real authentication on top so the
+// scope can't be self-selected.
+stateRouter.use((req, res, next) => {
+  const scope = req.query.scope as string | undefined;
+  const pid = req.query.patientId as string | undefined;
+  if (scope === 'patient' && pid) {
+    const original = res.json.bind(res);
+    res.json = ((body: unknown) => {
+      const b = body as { records?: PatientRecord[]; aiMode?: string; updatedAt?: number };
+      if (b && Array.isArray(b.records)) {
+        const patient =
+          b.records.find((r) => r.id.toUpperCase() === pid.toUpperCase()) ?? null;
+        return original({ patient, aiMode: b.aiMode, updatedAt: b.updatedAt });
+      }
+      return original(body); // error payloads pass through untouched
+    }) as typeof res.json;
+  }
+  next();
+});
+
 // Clinician-issued patient code — short, unambiguous, typeable on a phone.
 function newPatientCode(): string {
   const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -104,6 +128,22 @@ function diffPlans(prev: HandoffPlan, next: HandoffPlan): string[] {
     );
   }
   return lines;
+}
+
+// Drop half-filled editor leftovers (blank "New medication" cards etc.) so an
+// abandoned Add never reaches the patient's plan.
+function pruneEmpty(plan: HandoffPlan): HandoffPlan {
+  return {
+    ...plan,
+    medications: plan.medications.filter(
+      (m) => m.name.trim() && !(m.name === 'New medication' && !m.dose.trim()),
+    ),
+    titrationSteps: plan.titrationSteps.filter((t) => t.dose.trim()),
+    lifestyleActions: plan.lifestyleActions.filter((a) => a.title.trim()),
+    redFlags: plan.redFlags.filter((f) => f.symptom.trim()),
+    protocols: plan.protocols.filter((p) => p.label.trim() || p.trigger.trim()),
+    appointments: plan.appointments.filter((a) => a.title.trim() && a.when.trim()),
+  };
 }
 
 // Resolve a record or respond 404. Returns undefined after sending the error.
@@ -434,19 +474,21 @@ stateRouter.post('/', async (req: Request, res: Response) => {
             .json({ error: 'Nothing to send — extract a plan first' });
         }
         const isUpdate = record.planSent && !record.draftPlan;
-        const plan: HandoffPlan = edited
-          ? {
-              ...base,
-              ...edited,
-              patientName: record.name,
-              // Clinician-authored: an explicit edit from the clinic surface
-              // may replace protocols/targets (that's who authors them); an
-              // edit that omits them keeps the existing ones — the AI can
-              // never write them either way.
-              protocols: edited.protocols?.length ? edited.protocols : base.protocols,
-              glucoseTarget: edited.glucoseTarget ?? base.glucoseTarget,
-            }
-          : base;
+        const plan: HandoffPlan = pruneEmpty(
+          edited
+            ? {
+                ...base,
+                ...edited,
+                patientName: record.name,
+                // Clinician-authored: an explicit edit from the clinic surface
+                // may replace protocols/targets (that's who authors them); an
+                // edit that omits them keeps the existing ones — the AI can
+                // never write them either way.
+                protocols: edited.protocols?.length ? edited.protocols : base.protocols,
+                glucoseTarget: edited.glucoseTarget ?? base.glucoseTarget,
+              }
+            : base,
+        );
         updateRecord(record.id, {
           plan,
           draftPlan: null,

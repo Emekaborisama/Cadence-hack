@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@heroui/react';
-import { patientOnboard } from '../api.js';
-import type { ClientState } from '../api.js';
+import { pOnboard } from '../api.js';
+import type { PatientView } from '../api.js';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -14,7 +14,7 @@ export default function OnboardingFlow({
 }: {
   patientId: string;
   defaultName: string;
-  onDone: (state: ClientState) => void;
+  onDone: (view: PatientView) => void;
 }) {
   const [step, setStep] = useState<0 | 1>(0);
   const [name, setName] = useState(defaultName);
@@ -28,13 +28,13 @@ export default function OnboardingFlow({
     setSubmitting(true);
     setError(null);
     try {
-      const state = await patientOnboard(patientId, {
+      const view = await pOnboard(patientId, {
         name,
         consentGiven: consent,
         remindersEnabled: reminders,
         injectionDay,
       });
-      onDone(state);
+      onDone(view);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong — try again.');
     } finally {

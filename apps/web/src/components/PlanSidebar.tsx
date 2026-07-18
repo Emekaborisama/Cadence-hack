@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Button } from '@heroui/react';
 import type {
   Appointment,
@@ -57,6 +58,19 @@ export default function PlanSidebar({
   const appointments = plan.appointments ?? [];
   const protocols = plan.protocols ?? [];
   const isEmpty = meds.length + lifestyle.length + redFlags.length === 0;
+
+  // Collapsed-by-default except medications; edit mode opens everything so a
+  // review never misses a section. Add on a collapsed section auto-expands it.
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    Medications: true,
+  });
+  const isOpen = (label: string) => editing || Boolean(openSections[label]);
+  const toggle = (label: string) =>
+    setOpenSections((prev) => ({ ...prev, [label]: !isOpen(label) }));
+  const openAndAdd = (label: string, add: () => void) => () => {
+    setOpenSections((prev) => ({ ...prev, [label]: true }));
+    add();
+  };
 
   const patch = (p: Partial<PlanPatch>) => onPlanChange({ ...plan, ...p });
   const editList =
@@ -123,8 +137,11 @@ export default function PlanSidebar({
         {meds.length || editing ? (
           <Group
             label="Medications"
+            count={meds.length}
+            open={isOpen('Medications')}
+            onToggle={() => toggle('Medications')}
             editing={editing}
-            onAdd={() =>
+            onAdd={openAndAdd('Medications', () =>
               addTo<Medication>('medications', meds)({
                 id: `med-${Date.now()}`,
                 name: 'New medication',
@@ -132,8 +149,8 @@ export default function PlanSidebar({
                 schedule: '',
                 why: '',
                 status: 'new',
-              })
-            }
+              }),
+            )}
           >
             <div className="space-y-2.5">
               {meds.map((m) => (
@@ -182,14 +199,17 @@ export default function PlanSidebar({
         {titration.length || editing ? (
           <Group
             label="Titration schedule"
+            count={titration.length}
+            open={isOpen('Titration schedule')}
+            onToggle={() => toggle('Titration schedule')}
             editing={editing}
-            onAdd={() =>
+            onAdd={openAndAdd('Titration schedule', () =>
               addTo<TitrationStep>('titrationSteps', titration)({
                 id: `tit-${Date.now()}`,
                 label: 'Weeks …',
                 dose: '',
-              })
-            }
+              }),
+            )}
           >
             <div className="rounded-xl border border-line bg-white p-4">
               {editing ? (
@@ -215,15 +235,18 @@ export default function PlanSidebar({
         {lifestyle.length || editing ? (
           <Group
             label="Lifestyle & monitoring"
+            count={lifestyle.length + (plan.glucoseTarget ? 1 : 0)}
+            open={isOpen('Lifestyle & monitoring')}
+            onToggle={() => toggle('Lifestyle & monitoring')}
             editing={editing}
-            onAdd={() =>
+            onAdd={openAndAdd('Lifestyle & monitoring', () =>
               addTo<LifestyleAction>('lifestyleActions', lifestyle)({
                 id: `life-${Date.now()}`,
                 title: '',
                 detail: '',
                 category: 'other',
-              })
-            }
+              }),
+            )}
           >
             <ul className="space-y-2">
               {lifestyle.map((a) => (
@@ -285,10 +308,13 @@ export default function PlanSidebar({
         {redFlags.length || editing ? (
           <Group
             label="What to watch for"
+            count={redFlags.length}
+            open={isOpen('What to watch for')}
+            onToggle={() => toggle('What to watch for')}
             editing={editing}
-            onAdd={() =>
-              addTo<RedFlag>('redFlags', redFlags)({ id: `flag-${Date.now()}`, symptom: '', action: '' })
-            }
+            onAdd={openAndAdd('What to watch for', () =>
+              addTo<RedFlag>('redFlags', redFlags)({ id: `flag-${Date.now()}`, symptom: '', action: '' }),
+            )}
           >
             <ul className="space-y-2">
               {redFlags.map((f) => (
@@ -316,16 +342,19 @@ export default function PlanSidebar({
         {protocols.length || editing ? (
           <Group
             label="Safety protocols attached"
+            count={protocols.length}
+            open={isOpen('Safety protocols attached')}
+            onToggle={() => toggle('Safety protocols attached')}
             editing={editing}
-            onAdd={() =>
+            onAdd={openAndAdd('Safety protocols attached', () =>
               addTo<ApprovedProtocol>('protocols', protocols)({
                 id: `proto-${Date.now()}`,
                 trigger: '',
                 label: '',
                 steps: [''],
                 escalateWhen: '',
-              })
-            }
+              }),
+            )}
           >
             <p className="-mt-1 mb-2 text-[12px] leading-snug text-muted">
               Your approved responses. The companion hands over these exact steps when the
@@ -372,14 +401,17 @@ export default function PlanSidebar({
         {appointments.length || editing ? (
           <Group
             label="Follow-up"
+            count={appointments.length}
+            open={isOpen('Follow-up')}
+            onToggle={() => toggle('Follow-up')}
             editing={editing}
-            onAdd={() =>
+            onAdd={openAndAdd('Follow-up', () =>
               addTo<Appointment>('appointments', appointments)({
                 id: `appt-${Date.now()}`,
                 title: 'Follow-up review',
                 when: '',
-              })
-            }
+              }),
+            )}
           >
             <ul className="space-y-2">
               {appointments.map((a) => (
@@ -451,23 +483,49 @@ function Remove({ onPress }: { onPress: () => void }) {
   );
 }
 
+// Collapsible section — the count keeps a collapsed section legible, so the
+// clinician can keep only what they're reviewing open instead of scrolling
+// the whole plan.
 function Group({
   label,
+  count,
   editing,
   onAdd,
+  open,
+  onToggle,
   children,
 }: {
   label: string;
+  count?: number;
   editing?: boolean;
   onAdd?: () => void;
+  open: boolean;
+  onToggle: () => void;
   children: ReactNode;
 }) {
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-          {label}
-        </h3>
+        <button
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex flex-1 items-center gap-1.5 text-left"
+        >
+          <span
+            className={`text-[10px] text-muted transition-transform ${open ? 'rotate-90' : ''}`}
+            aria-hidden
+          >
+            ▶
+          </span>
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            {label}
+            {typeof count === 'number' ? (
+              <span className="ml-1.5 rounded-full bg-paper-2 px-1.5 py-0.5 text-[10px] font-bold text-ink/60">
+                {count}
+              </span>
+            ) : null}
+          </h3>
+        </button>
         {editing && onAdd ? (
           <button
             onClick={onAdd}
@@ -477,7 +535,7 @@ function Group({
           </button>
         ) : null}
       </div>
-      {children}
+      {open ? children : null}
     </section>
   );
 }

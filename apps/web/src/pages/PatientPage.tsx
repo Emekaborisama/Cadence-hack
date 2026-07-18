@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Button, Spinner } from '@heroui/react';
 import type { CheckInResponse, Explainer } from '@cadence/shared';
-import { findRecord } from '../api.js';
-import { usePollState } from '../hooks/usePollState.js';
+import type { PatientView } from '../api.js';
+import { usePatientView } from '../hooks/usePatientView.js';
 import PatientTabBar, { type PatientTab } from '../components/PatientTabBar.js';
 import OnboardingFlow from '../components/OnboardingFlow.js';
 import TodayTab from '../components/TodayTab.js';
@@ -15,18 +15,16 @@ import InboxTab from '../components/InboxTab.js';
 
 const STORAGE_KEY = 'cadence.patientId';
 
-// The patient app — full-screen web app (installable PWA). The patient signs
-// in with the short code their clinician issued; their whole record (plan,
-// streak, readings, inbox) lives server-side against that code, so nothing
-// resets on refresh or on a different device.
+// The patient app — full-screen installable PWA. Signs in with the
+// clinician-issued code; every request is patient-scoped, so this surface
+// never receives any other patient's data (or the clinic's).
 export default function PatientPage() {
-  const { state, setState, error } = usePollState();
   const [patientId, setPatientId] = useState<string | null>(
     () => localStorage.getItem(STORAGE_KEY),
   );
+  const { view, setView, error } = usePatientView(patientId);
   const [tab, setTab] = useState<PatientTab>('today');
   const [checkInOpen, setCheckInOpen] = useState(false);
-  // Pre-filled check-in when the patient taps a red flag on the Plan tab.
   const [checkInPrefill, setCheckInPrefill] = useState<{ symptom: string } | null>(null);
   const [glucoseOpen, setGlucoseOpen] = useState(false);
   const [checkInResponse, setCheckInResponse] = useState<CheckInResponse | null>(null);
@@ -34,7 +32,7 @@ export default function PatientPage() {
   const [activeGuide, setActiveGuide] = useState<string | null>(null);
   const [seenCount, setSeenCount] = useState(0);
 
-  const record = findRecord(state, patientId);
+  const record = view?.patient ?? null;
   const inboxCount = record?.inbox.length ?? 0;
   const hasUnread = inboxCount > seenCount;
 
@@ -53,22 +51,19 @@ export default function PatientPage() {
     setPatientId(null);
   };
 
+  const onView = (next: PatientView) => setView(next);
+
   const setExplainer = (explainer: Explainer) =>
-    setState((prev) =>
-      prev && record
-        ? {
-            ...prev,
-            records: prev.records.map((r) =>
-              r.id === record.id ? { ...r, explainer } : r,
-            ),
-          }
-        : prev,
+    setView((prev) =>
+      prev?.patient ? { ...prev, patient: { ...prev.patient, explainer } } : prev,
     );
 
   return (
     <div className="mono-canvas min-h-dvh">
       <main className="relative mx-auto flex h-dvh w-full max-w-[480px] flex-col overflow-hidden">
-        {!state ? (
+        {!patientId ? (
+          <SignIn onSignIn={signIn} knownInvalid={false} staleId={null} onClearStale={signOut} />
+        ) : !view ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
             <Spinner label="Loading Cadence…" color="warning" />
             {error ? (
@@ -81,16 +76,12 @@ export default function PatientPage() {
         ) : !record ? (
           <SignIn
             onSignIn={signIn}
-            knownInvalid={Boolean(patientId)}
+            knownInvalid={true}
             staleId={patientId}
             onClearStale={signOut}
           />
         ) : !record.profile ? (
-          <OnboardingFlow
-            patientId={record.id}
-            defaultName={record.name}
-            onDone={setState}
-          />
+          <OnboardingFlow patientId={record.id} defaultName={record.name} onDone={onView} />
         ) : !record.planSent || !record.plan ? (
           <WaitingState name={record.profile.name} code={record.id} />
         ) : (
@@ -105,7 +96,7 @@ export default function PatientPage() {
                   checkInResponse={checkInResponse}
                   onCheckIn={() => setCheckInOpen(true)}
                   onShowGuide={setActiveGuide}
-                  onState={setState}
+                  onView={onView}
                 />
               ) : null}
               {tab === 'plan' ? (
@@ -144,11 +135,12 @@ export default function PatientPage() {
               setCheckInOpen(false);
               setCheckInPrefill(null);
             }}
-            onSubmitted={(r) => {
+            onSubmitted={(r, next) => {
               setCheckInResponse(r);
               setCheckInOpen(false);
               setCheckInPrefill(null);
               setTab('today');
+              onView(next);
             }}
           />
         ) : null}
@@ -157,10 +149,11 @@ export default function PatientPage() {
           <GlucoseSheet
             patientId={record.id}
             onClose={() => setGlucoseOpen(false)}
-            onLogged={(response) => {
+            onLogged={(response, next) => {
               setGlucoseResult(response);
               setGlucoseOpen(false);
               setTab('progress');
+              onView(next);
             }}
           />
         ) : null}
