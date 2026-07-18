@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Input } from '@heroui/react';
 import type { PlanPatch } from '@cadence/shared';
@@ -16,16 +16,35 @@ import { usePollState } from '../hooks/usePollState.js';
 import ConsultPane from '../components/ConsultPane.js';
 import PlanSidebar from '../components/PlanSidebar.js';
 import InboxPanel from '../components/InboxPanel.js';
+import AuditPanel from '../components/AuditPanel.js';
 
 const SELECTED_KEY = 'cadence.clinic.selectedId';
+const TAB_KEY = 'cadence.clinic.tab';
+const draftKey = (id: string) => `cadence.clinic.draft.${id}`;
 
-// The cardiometabolic pathway conditions Cadence targets.
-const CONDITIONS = ['Diabetes — Type 2', 'Obesity', 'Cardiovascular disease'];
+// Conditions on the pathway. Only T2D is enabled this build — the patient
+// surface (glucose targets, titration, protocols) is diabetes-specific today;
+// the rest are the roadmap.
+const CONDITIONS = [
+  { value: 'Diabetes — Type 2', enabled: true },
+  { value: 'Obesity', enabled: false },
+  { value: 'Cardiovascular disease', enabled: false },
+];
+
+type ClinicTab = 'patients' | 'consult' | 'inbox' | 'audit';
+
+const TABS: { id: ClinicTab; label: string }[] = [
+  { id: 'patients', label: 'Patients' },
+  { id: 'consult', label: 'Consult' },
+  { id: 'inbox', label: 'Inbox' },
+  { id: 'audit', label: 'Audit log' },
+];
 
 export default function ClinicPage() {
   const { state, setState } = usePollState();
-  // Selection survives a refresh — losing your working patient on F5 reads
-  // as data loss even though the records are server-side.
+  const [tab, setTab] = useState<ClinicTab>(
+    () => (localStorage.getItem(TAB_KEY) as ClinicTab) || 'patients',
+  );
   const [selectedId, setSelectedId] = useState<string | null>(
     () => localStorage.getItem(SELECTED_KEY),
   );
@@ -42,25 +61,51 @@ export default function ClinicPage() {
 
   const records = state?.records ?? [];
   const inbox = state?.inbox ?? [];
+  const auditLog = state?.auditLog ?? [];
   const selected = records.find((r) => r.id === selectedId) ?? null;
+  const unread = inbox.filter((i) => !i.read).length;
 
   const sent = Boolean(selected?.planSent);
   const draft = selected?.draftPlan ?? null;
+  const hasEdits = Object.values(doseEdits).some((v) => v?.trim());
 
-  // The sidebar shows: the sent plan once approved, else the AI draft under review.
   const plan: PlanPatch = useMemo(() => {
-    if (selected?.planSent && selected.plan) return selected.plan;
+    if (selected?.planSent && selected.plan && !draft) return selected.plan;
     return draft ?? {};
   }, [selected, draft]);
 
   const reviewing = Boolean(draft) && !sent;
-  const consultPhase: 'input' | 'readonly' = reviewing || sent || extracting ? 'readonly' : 'input';
+  // The consult pane accepts input pre-extract, and again when the clinician
+  // wants a fresh consult against a sent plan (draft cleared, plan live).
+  const consultPhase: 'input' | 'readonly' =
+    extracting || reviewing || (sent && Boolean(selected?.transcript)) ? 'readonly' : 'input';
+
+  const shownTranscript =
+    consultPhase === 'readonly' ? (selected?.transcript ?? transcript) : transcript;
 
   const statusLabel = extracting
     ? 'AI is structuring the consult — medications, doses, actions, safety protocols…'
     : reviewing
       ? 'Extraction complete — review, edit anything, then approve'
-      : null;
+      : sent && (editing || hasEdits)
+        ? 'Editing the live plan — sending will notify the patient of the update'
+        : null;
+
+  const openTab = (t: ClinicTab) => {
+    setTab(t);
+    localStorage.setItem(TAB_KEY, t);
+  };
+
+  // Restore the transcript draft when a patient is selected — refresh-proof.
+  useEffect(() => {
+    if (!selectedId) return;
+    setTranscript(localStorage.getItem(draftKey(selectedId)) ?? '');
+  }, [selectedId]);
+
+  const changeTranscript = (v: string) => {
+    setTranscript(v);
+    if (selectedId) localStorage.setItem(draftKey(selectedId), v);
+  };
 
   const handleCreate = useCallback(async () => {
     if (!newName.trim()) return;
@@ -68,20 +113,15 @@ export default function ClinicPage() {
     try {
       if (editingPatient && selectedId) {
         setState(
-          await updatePatientAction(selectedId, {
-            name: newName.trim(),
-            details: newDetails,
-          }),
+          await updatePatientAction(selectedId, { name: newName.trim(), details: newDetails }),
         );
         setEditingPatient(false);
       } else {
         const next = await createPatientAction(newName.trim(), newDetails.trim() || undefined);
         setState(next);
-        // Newest record is first — select it so the consult targets it.
         const id = next.records[0]?.id ?? null;
         setSelectedId(id);
         if (id) localStorage.setItem(SELECTED_KEY, id);
-        setTranscript('');
         setDoseEdits({});
       }
       setNewName('');
@@ -97,6 +137,7 @@ export default function ClinicPage() {
         return;
       }
       setState(await deletePatientAction(id));
+      localStorage.removeItem(draftKey(id));
       if (selectedId === id) {
         setSelectedId(null);
         localStorage.removeItem(SELECTED_KEY);
@@ -111,6 +152,7 @@ export default function ClinicPage() {
     setExtractError(null);
     try {
       setState(await extractAction(selected.id, transcript));
+      localStorage.removeItem(draftKey(selected.id));
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : 'Extraction failed — try again.');
     } finally {
@@ -130,6 +172,7 @@ export default function ClinicPage() {
     try {
       setState(await sendPlanAction(selected.id, editedPlan));
       setEditing(false);
+      setDoseEdits({});
     } finally {
       setSending(false);
     }
@@ -143,10 +186,12 @@ export default function ClinicPage() {
   const handleReset = useCallback(async () => {
     const next = await resetDemo();
     setSelectedId(null);
+    localStorage.removeItem(SELECTED_KEY);
     setTranscript('');
     setExtracting(false);
     setExtractError(null);
     setEditing(false);
+    setEditingPatient(false);
     setDoseEdits({});
     setState(next);
   }, [setState]);
@@ -154,50 +199,84 @@ export default function ClinicPage() {
   const selectPatient = (id: string) => {
     setSelectedId(id);
     localStorage.setItem(SELECTED_KEY, id);
-    setTranscript('');
     setExtractError(null);
     setEditing(false);
     setEditingPatient(false);
     setDoseEdits({});
   };
 
-  const canSend = Boolean(plan.medications?.length) && !extracting && Boolean(selected);
+  const canSend =
+    Boolean(plan.medications?.length) &&
+    !extracting &&
+    Boolean(selected) &&
+    (!sent || Boolean(draft) || editing || hasEdits);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-[1280px] flex-1 flex-col gap-4 p-5">
-      <header className="flex items-end justify-between border-b border-line pb-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <Link to="/" className="font-serif text-lg font-medium text-ink hover:text-mint-strong">
-              Cadence
-            </Link>
-            <span className="rounded-full bg-mint-wash px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-mint-strong">
-              Clinician
-            </span>
+      <header className="border-b border-line pb-0">
+        <div className="flex items-end justify-between pb-3">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <Link
+                to="/"
+                className="font-serif text-lg font-medium text-ink hover:text-mint-strong"
+              >
+                Cadence
+              </Link>
+              <span className="rounded-full bg-mint-wash px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-mint-strong">
+                Clinician
+              </span>
+            </div>
+            <p className="mt-1.5 text-[15px] text-muted">
+              {selected ? (
+                <>
+                  <span className="text-ink">{selected.name}</span> ·{' '}
+                  <span className="font-mono text-[13px] text-mint-strong">{selected.id}</span>
+                  {selected.details ? <> · {selected.details}</> : null}
+                </>
+              ) : (
+                'No patient selected'
+              )}
+            </p>
           </div>
-          <p className="mt-1.5 text-[15px] text-muted">
-            {selected ? (
-              <>
-                Remote review · <span className="text-ink">{selected.name}</span> ·{' '}
-                <span className="font-mono text-[13px] text-mint-strong">{selected.id}</span>
-              </>
-            ) : (
-              'Create or select a patient to begin'
-            )}
-          </p>
+          <Button
+            onPress={handleReset}
+            className="rounded-xl border border-line bg-white px-4 py-5 text-sm font-medium text-muted data-[hovered=true]:text-ink"
+          >
+            Reset
+          </Button>
         </div>
-        <Button
-          onPress={handleReset}
-          className="rounded-xl border border-line bg-white px-4 py-5 text-sm font-medium text-muted data-[hovered=true]:text-ink"
-        >
-          Reset
-        </Button>
+        {/* Tab bar — one focused surface at a time, keyboard/screen-reader friendly. */}
+        <nav role="tablist" className="flex gap-1">
+          {TABS.map((t) => {
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={active}
+                onClick={() => openTab(t.id)}
+                className={`relative rounded-t-xl px-4 py-2.5 text-[13.5px] font-semibold transition ${
+                  active
+                    ? 'border border-b-0 border-line bg-white text-ink'
+                    : 'text-muted hover:text-ink'
+                }`}
+              >
+                {t.label}
+                {t.id === 'inbox' && unread > 0 ? (
+                  <span className="ml-1.5 rounded-full bg-clay px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {unread}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </nav>
       </header>
 
-      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[260px_1fr_400px]">
-        {/* Patient roster — the clinician creates records and issues codes. */}
-        <div className="flex flex-col gap-3">
-          <div className="rounded-2xl border border-line bg-white p-4">
+      {tab === 'patients' ? (
+        <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-[320px_1fr]">
+          <div className="rounded-2xl border border-line bg-white p-4 md:self-start">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mint-strong">
                 {editingPatient ? `Edit ${selected?.name ?? 'patient'}` : 'New patient'}
@@ -232,8 +311,9 @@ export default function ClinicPage() {
               >
                 <option value="">Select condition…</option>
                 {CONDITIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                  <option key={c.value} value={c.value} disabled={!c.enabled}>
+                    {c.value}
+                    {c.enabled ? '' : ' (coming soon)'}
                   </option>
                 ))}
               </select>
@@ -247,7 +327,7 @@ export default function ClinicPage() {
             </Button>
           </div>
 
-          <div className="flex-1 overflow-hidden rounded-2xl border border-line bg-white">
+          <div className="overflow-hidden rounded-2xl border border-line bg-white">
             <div className="flex items-center justify-between border-b border-line px-4 py-3">
               <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
                 Patients ({records.length})
@@ -274,17 +354,17 @@ export default function ClinicPage() {
             </div>
             <div className="divide-y divide-line overflow-y-auto">
               {records.length === 0 ? (
-                <p className="px-4 py-6 text-center text-[13px] text-muted">
+                <p className="px-4 py-8 text-center text-[13px] text-muted">
                   No records yet. Create one and give the patient their code.
                 </p>
               ) : (
                 records.map((r) => {
                   const active = r.id === selectedId;
                   return (
-                    <button
+                    <div
                       key={r.id}
                       onClick={() => selectPatient(r.id)}
-                      className={`block w-full px-4 py-3 text-left transition ${
+                      className={`cursor-pointer px-4 py-3 transition ${
                         active ? 'bg-mint-wash' : 'hover:bg-paper'
                       }`}
                     >
@@ -332,9 +412,16 @@ export default function ClinicPage() {
                       ) : null}
                       {active ? (
                         <div className="mt-1.5 flex gap-2">
-                          <span
-                            role="button"
-                            tabIndex={0}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openTab('consult');
+                            }}
+                            className="rounded-md bg-mint px-2 py-1 text-[11px] font-semibold text-ink2"
+                          >
+                            Open consult →
+                          </button>
+                          <button
                             onClick={(e) => {
                               e.stopPropagation();
                               setEditingPatient(true);
@@ -344,10 +431,8 @@ export default function ClinicPage() {
                             className="rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-muted hover:text-ink"
                           >
                             Edit
-                          </span>
-                          <span
-                            role="button"
-                            tabIndex={0}
+                          </button>
+                          <button
                             onClick={(e) => {
                               e.stopPropagation();
                               void handleDelete(r.id, r.name);
@@ -355,26 +440,28 @@ export default function ClinicPage() {
                             className="rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-clay hover:opacity-80"
                           >
                             Delete
-                          </span>
+                          </button>
                         </div>
                       ) : null}
-                    </button>
+                    </div>
                   );
                 })
               )}
             </div>
           </div>
         </div>
+      ) : null}
 
-        {/* Consult + plan, scoped to the selected patient. */}
-        {selected ? (
-          <>
+      {tab === 'consult' ? (
+        selected ? (
+          <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_400px]">
             <div className="flex min-h-[540px] flex-col">
               <ConsultPane
                 phase={consultPhase}
-                transcript={transcript}
-                onTranscriptChange={setTranscript}
-                onUseSample={() => setTranscript(CONSULT_TRANSCRIPT)}
+                transcript={shownTranscript}
+                onTranscriptChange={changeTranscript}
+                onUseSample={() => changeTranscript(CONSULT_TRANSCRIPT)}
+                sampleLabel={`Load sample consult — ${selected.details || 'Type 2 diabetes'}`}
                 onExtract={handleExtract}
                 extracting={extracting}
                 error={extractError}
@@ -385,7 +472,7 @@ export default function ClinicPage() {
                 plan={plan}
                 lastEventLabel={statusLabel}
                 onSend={handleSend}
-                sent={sent}
+                sent={sent && !draft}
                 sending={sending}
                 canSend={canSend}
                 editing={editing}
@@ -394,22 +481,23 @@ export default function ClinicPage() {
                 onDoseChange={(id, val) => setDoseEdits((prev) => ({ ...prev, [id]: val }))}
               />
             </div>
-          </>
+          </div>
         ) : (
-          <div className="flex min-h-[540px] flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-white/70 px-8 text-center lg:col-span-2">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-mint-wash">
-              <span className="h-2.5 w-2.5 rounded-full bg-mint" />
-            </div>
+          <div className="flex min-h-[400px] flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-white/70 px-8 text-center">
             <p className="max-w-md text-[15px] leading-relaxed text-muted">
-              Create a patient record (or select one on the left), then paste the consult
-              transcript or your notes. The AI structures it into their care plan for your
-              review — you approve before anything is sent.
+              No patient selected.{' '}
+              <button className="font-semibold text-mint-strong underline" onClick={() => openTab('patients')}>
+                Choose or create one
+              </button>{' '}
+              to start the consult.
             </p>
           </div>
-        )}
-      </div>
+        )
+      ) : null}
 
-      <InboxPanel items={inbox} onMarkRead={markRead} />
+      {tab === 'inbox' ? <InboxPanel items={inbox} onMarkRead={markRead} /> : null}
+
+      {tab === 'audit' ? <AuditPanel entries={auditLog} /> : null}
     </main>
   );
 }

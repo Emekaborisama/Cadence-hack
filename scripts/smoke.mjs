@@ -284,6 +284,35 @@ assert(s.inbox.length === 2 && s.inbox[0].kind === 'glucose' && s.inbox[0].patie
 s = await api({ action: 'markRead', id: s.inbox[0].id });
 assert(s.inbox[0].read === true, 'markRead → inbox item read');
 
+// ── Transcript persisted with the record (refresh-proof source) ───────────
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.transcript === TRANSCRIPT, 'source transcript stored on the record');
+
+// ── Post-send plan UPDATE: edit → re-send, patient notified, rhythm kept ──
+const inboxBefore = rec.inbox.length;
+const streakKeep = rec.streakDays;
+s = await api({
+  action: 'sendPlan',
+  patientId: meera.id,
+  plan: { medications: [{ id: 'med-metformin', name: 'Metformin', dose: '500 mg, twice a day', schedule: 'With meals', why: 'dose reduced', status: 'adjusted' }] },
+});
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.plan.medications[0].dose === '500 mg, twice a day',
+  'post-send edit → patient receives the updated dose');
+assert(rec.inbox.length === inboxBefore + 1 && rec.inbox[0].title.includes('updated'),
+  'patient notified of the plan update');
+assert(rec.streakDays === streakKeep && rec.glucoseReadings.length > 0,
+  "an update never resets the patient's streak or readings");
+
+// ── Audit log: the trail exists and reads correctly ────────────────────────
+assert(Array.isArray(s.auditLog) && s.auditLog.length > 0, 'audit log populated');
+assert(s.auditLog[0].event === 'plan.updated' && s.auditLog[0].actor === 'clinician',
+  'newest audit entry is the plan update (clinician)');
+assert(s.auditLog.some((e) => e.event === 'record.created'),
+  'audit trail includes record creation');
+assert(s.auditLog.some((e) => e.event === 'checkin.flagged' && e.actor === 'patient'),
+  'audit trail includes patient-side flagged check-in');
+
 // ── Record CRUD: update + delete ───────────────────────────────────────────
 s = await api({ action: 'updatePatient', patientId: meera.id, name: 'Meera K', details: 'T2D, semaglutide titration' });
 rec = s.records.find((r) => r.id === meera.id);

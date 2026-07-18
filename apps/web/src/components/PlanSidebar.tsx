@@ -61,7 +61,7 @@ export default function PlanSidebar({
           <div className="font-serif text-lg font-medium text-ink">Care plan</div>
           {plan.condition ? <div className="text-[13px] text-muted">{plan.condition}</div> : null}
         </div>
-        {meds.length && !sent ? (
+        {meds.length ? (
           <Button
             onPress={onToggleEdit}
             className={`rounded-lg border px-3 py-4 text-[13px] font-semibold ${
@@ -225,21 +225,25 @@ export default function PlanSidebar({
         ) : null}
         <Button
           onPress={onSend}
-          isDisabled={!canSend || sending || sent}
+          isDisabled={!canSend || sending}
           className={`w-full rounded-xl px-4 py-6 text-[15px] font-semibold ${
-            sent
+            sent && !canSend
               ? 'bg-mint-wash text-mint-strong'
-              : 'bg-mint text-ink2 data-[hovered=true]:opacity-90 data-[disabled=true]:bg-line data-[disabled=true]:text-muted'
+              : 'bg-mint text-ink2 data-[hovered=true]:opacity-90 data-[disabled=true]:bg-mint-wash data-[disabled=true]:text-mint-strong'
           }`}
         >
-          {sent
-            ? `✓ Approved & sent to ${plan.patientName ?? 'patient'}`
-            : sending
-              ? 'Sending…'
+          {sending
+            ? 'Sending…'
+            : sent
+              ? canSend
+                ? `Send update to ${plan.patientName ?? 'patient'}`
+                : `✓ Approved & sent to ${plan.patientName ?? 'patient'}`
               : 'Approve & send to patient'}
         </Button>
         <p className="mt-2.5 text-center text-[12px] leading-snug text-muted">
-          Nothing reaches the patient until you approve it here.
+          {sent
+            ? 'Edit any dose and send — the patient is notified of the update.'
+            : 'Nothing reaches the patient until you approve it here.'}
         </p>
       </div>
     </div>

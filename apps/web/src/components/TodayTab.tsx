@@ -3,6 +3,7 @@ import { Button } from '@heroui/react';
 import type { CheckInResponse, HandoffPlan } from '@cadence/shared';
 import { toggleTask } from '../api.js';
 import type { ClientState } from '../api.js';
+import { downloadScheduleIcs } from '../lib/calendar.js';
 
 // Today's actions, each led by its real photographic object (monogram move).
 type Task = {
@@ -179,12 +180,20 @@ export default function TodayTab({
 
       {/* today's plan, object-led rows */}
       <section className="reveal mt-6" style={delay(3)}>
-        <h2
-          className="mb-3 text-[17px] font-semibold text-ink2"
-          style={{ fontFamily: 'var(--font-sora), sans-serif' }}
-        >
-          Today&rsquo;s plan
-        </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2
+            className="text-[17px] font-semibold text-ink2"
+            style={{ fontFamily: 'var(--font-sora), sans-serif' }}
+          >
+            Today&rsquo;s plan
+          </h2>
+          <button
+            onClick={() => downloadScheduleIcs(plan.patientName)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-mint-wash px-3 py-1.5 text-[12px] font-semibold text-mint-strong"
+          >
+            <span aria-hidden>＋</span> Add to calendar
+          </button>
+        </div>
         <ul className="space-y-2.5">
           {TASKS.map((t) => {
             const isDone = done.has(t.id);

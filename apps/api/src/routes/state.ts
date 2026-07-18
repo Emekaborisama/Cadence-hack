@@ -29,6 +29,7 @@ import {
   addLog,
   addPatientMessage,
   addRecord,
+  audit,
   getRecord,
   getState,
   markInboxRead,
@@ -287,6 +288,11 @@ stateRouter.post('/', async (req: Request, res: Response) => {
           tasksDone: [],
         };
         addRecord(record);
+        audit('clinician', 'record.created', {
+          patientId: record.id,
+          patientName: record.name,
+          detail: record.details,
+        });
         return res.json(getState());
       }
 
@@ -305,6 +311,13 @@ stateRouter.post('/', async (req: Request, res: Response) => {
         if (patch.name && record.plan) {
           updateRecord(record.id, { plan: { ...record.plan, patientName: patch.name } });
         }
+        audit('clinician', 'record.updated', {
+          patientId: record.id,
+          patientName: patch.name ?? record.name,
+          detail: [patch.name && `renamed to ${patch.name}`, patch.details && `condition: ${patch.details}`]
+            .filter(Boolean)
+            .join(' · '),
+        });
         return res.json(getState());
       }
 
@@ -317,6 +330,10 @@ stateRouter.post('/', async (req: Request, res: Response) => {
           records: state.records.filter((r) => r.id !== record.id),
           // Their flags leave the clinic inbox with them.
           inbox: state.inbox.filter((i) => i.patientId !== record.id),
+        });
+        audit('clinician', 'record.deleted', {
+          patientId: record.id,
+          patientName: record.name,
         });
         return res.json(getState());
       }
@@ -337,26 +354,37 @@ stateRouter.post('/', async (req: Request, res: Response) => {
         const draft = await extractPlan(transcript);
         updateRecord(record.id, {
           draftPlan: { ...draft, patientName: record.name },
+          // Keep the source of truth with the record — the clinic can show it
+          // after a refresh, and the plan stays traceable to its consult.
+          transcript,
+        });
+        audit('clinician', 'consult.extracted', {
+          patientId: record.id,
+          patientName: record.name,
+          detail: `${draft.medications.length} medications, ${draft.lifestyleActions.length} actions`,
         });
         return res.json(getState());
       }
 
       case 'sendPlan': {
-        // Clinician approval gate. Base = the reviewed draft when one exists
-        // (no second AI call). Screen edits merge over the base; safety
-        // protocols and targets stay server-authored.
+        // Clinician approval gate — and, after a plan is live, the UPDATE
+        // path: edits re-send against the published plan. Base = the reviewed
+        // draft when one exists, else the already-sent plan. Screen edits
+        // merge over the base; safety protocols and targets stay
+        // server-authored.
         const { patientId, plan: edited } = body as Extract<
           StateAction,
           { action: 'sendPlan' }
         >;
         const record = requireRecord(res, patientId);
         if (!record) return;
-        if (!record.draftPlan) {
+        const base = record.draftPlan ?? record.plan;
+        if (!base) {
           return res
             .status(400)
             .json({ error: 'Nothing to send — extract a plan first' });
         }
-        const base = record.draftPlan;
+        const isUpdate = record.planSent && !record.draftPlan;
         const plan: HandoffPlan = edited
           ? {
               ...base,
@@ -371,18 +399,29 @@ stateRouter.post('/', async (req: Request, res: Response) => {
           plan,
           draftPlan: null,
           planSent: true,
-          glucoseReadings: seedGlucoseHistory(),
-          explainer: null, // new plan → regenerate the explainer on next open
-          streakDays: STREAK_DAYS, // seeded rhythm so the demo shows a running streak
-          taskDate: today(),
-          tasksDone: [],
+          // First send seeds the at-home rhythm; an update never resets the
+          // patient's readings, tasks, or streak.
+          ...(isUpdate
+            ? {}
+            : {
+                glucoseReadings: seedGlucoseHistory(),
+                explainer: null,
+                streakDays: STREAK_DAYS,
+                taskDate: today(),
+                tasksDone: [],
+              }),
         });
         addPatientMessage(record.id, {
           id: `pmsg-${Date.now()}`,
           kind: 'plan',
-          title: 'Your care plan has arrived',
+          title: isUpdate ? 'Your care plan was updated' : 'Your care plan has arrived',
           body: plan.summary,
           at: new Date().toISOString(),
+        });
+        audit('clinician', isUpdate ? 'plan.updated' : 'plan.sent', {
+          patientId: record.id,
+          patientName: record.name,
+          detail: plan.medications.map((m) => `${m.name} ${m.dose}`).join(' · '),
         });
         return res.json(getState());
       }
@@ -417,6 +456,11 @@ stateRouter.post('/', async (req: Request, res: Response) => {
             checkIn,
             response,
             read: false,
+          });
+          audit('patient', 'checkin.flagged', {
+            patientId: record.id,
+            patientName: record.name,
+            detail: `${checkIn.symptom} (${checkIn.severity})`,
           });
         }
         return res.json(getState());
@@ -463,6 +507,11 @@ stateRouter.post('/', async (req: Request, res: Response) => {
             reading,
             response,
             read: false,
+          });
+          audit('patient', 'glucose.flagged', {
+            patientId: record.id,
+            patientName: record.name,
+            detail: `${reading.value} mmol/L (${reading.context})`,
           });
         }
         return res.json(getState());
@@ -529,6 +578,11 @@ stateRouter.post('/', async (req: Request, res: Response) => {
             injectionDay: profile.injectionDay,
             onboardedAt: new Date().toISOString(),
           },
+        });
+        audit('patient', 'patient.onboarded', {
+          patientId: record.id,
+          patientName: record.name,
+          detail: 'consent given',
         });
         return res.json(getState());
       }

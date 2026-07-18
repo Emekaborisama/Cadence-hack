@@ -1,5 +1,6 @@
 import type {
   AppState,
+  AuditEntry,
   Escalation,
   GameState,
   LogEntry,
@@ -33,6 +34,7 @@ function freshState(): AppState {
     latestReview: null,
     records: [],
     inbox: [],
+    auditLog: [],
     updatedAt: Date.now(),
   };
 }
@@ -146,4 +148,21 @@ export function addPatientMessage(
   const record = getRecord(patientId);
   if (!record) return getState();
   return updateRecord(patientId, { inbox: [msg, ...record.inbox] });
+}
+
+// Append an audit event (newest first, capped so the log can't grow unbounded).
+export function audit(
+  actor: AuditEntry['actor'],
+  event: string,
+  extra?: { patientId?: string; patientName?: string; detail?: string },
+): AppState {
+  const state = getState();
+  const entry: AuditEntry = {
+    id: `aud-${Date.now()}-${state.auditLog.length}`,
+    at: new Date().toISOString(),
+    actor,
+    event,
+    ...extra,
+  };
+  return setState({ auditLog: [entry, ...state.auditLog].slice(0, 200) });
 }

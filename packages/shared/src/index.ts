@@ -117,7 +117,13 @@ export interface Escalation {
   clinicianNote?: string;
 }
 
-import type { CheckIn, InboxItem, PatientRecord, PlanPatch } from './handoff.js';
+import type {
+  AuditEntry,
+  CheckIn,
+  InboxItem,
+  PatientRecord,
+  PlanPatch,
+} from './handoff.js';
 
 export * from './handoff.js';
 
@@ -134,6 +140,7 @@ export interface AppState {
   // clinician-created records keyed by a short patient code.
   records: PatientRecord[];
   inbox: InboxItem[]; // clinician's between-visit inbox, across all patients
+  auditLog: AuditEntry[]; // clinician-side event trail, newest first
   updatedAt: number;
 }
 
