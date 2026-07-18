@@ -13,11 +13,12 @@ export default defineConfig({
       manifest: {
         name: 'Cadence',
         short_name: 'Cadence',
-        description: 'Cadence — an OpenAI-powered PWA.',
-        theme_color: '#0d0d0f',
-        background_color: '#0d0d0f',
+        description:
+          'Consult-to-home handoff: the conversation becomes the care plan — captured live, handed off visually, kept alive at home.',
+        theme_color: '#f7f8fa',
+        background_color: '#f7f8fa',
         display: 'standalone',
-        start_url: '/',
+        start_url: '/patient',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
@@ -29,12 +30,40 @@ export default defineConfig({
           },
         ],
       },
+      workbox: {
+        // SPA routes (patient/clinic) resolve to index.html when offline.
+        navigateFallback: '/index.html',
+        runtimeCaching: [
+          {
+            // Never serve shared state from cache — both surfaces poll
+            // /api/state every ~1s and stale state would break the live
+            // handoff moment.
+            urlPattern: /\/api\/.*/,
+            handler: 'NetworkOnly',
+          },
+          {
+            // Object renders can be cached aggressively.
+            urlPattern: /\/objects\/.*\.png$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'object-renders',
+              expiration: { maxEntries: 24 },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'google-fonts' },
+          },
+        ],
+      },
     }),
   ],
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3001',
+      '/api': { target: 'http://localhost:3001', changeOrigin: true },
+      '/health': { target: 'http://localhost:3001', changeOrigin: true },
     },
   },
 });

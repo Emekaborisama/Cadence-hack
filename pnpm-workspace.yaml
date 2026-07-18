@@ -1,3 +1,8 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+onlyBuiltDependencies:
+  - esbuild
+  - '@heroui/shared-utils'
+  - better-sqlite3

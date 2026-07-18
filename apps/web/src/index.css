@@ -1,7 +1,47 @@
 @import 'tailwindcss';
 @plugin './hero.ts';
 @source '../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
-@custom-variant dark (&:is(.dark *));
+
+/* Design tokens ported from the design-complete prototype (demo-ui).
+   Two palettes: the clinician surface keeps warm paper + pine + editorial
+   serif; the patient surface is "monogram-white" — near-white canvas, soft
+   corner washes, white cards, warm amber accent (tokens named "mint" to match
+   the design source). */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Newsreader', ui-serif, Georgia, serif;
+  --font-sora: 'Sora', ui-sans-serif, system-ui, sans-serif;
+  --font-inter: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* Clinician "care" palette — warm paper, pine accent, calm clay warnings. */
+  --color-paper: #fbfaf7;
+  --color-paper-2: #f4f1ea;
+  --color-ink: #1f2421;
+  --color-muted: #6b7168;
+  --color-line: #e7e3da;
+  --color-care: #0e6e5c;
+  --color-care-strong: #0b5647;
+  --color-care-wash: #eaf2ee;
+  --color-clay: #b4472e;
+  --color-clay-wash: #fbeee9;
+  --color-ochre: #a9761d;
+  --color-ochre-wash: #f6efdc;
+
+  /* Monogram-white patient surface (Cadence v2). */
+  --color-canvas: #f7f8fa;
+  --color-cloud: #ffffff;
+  --color-ink2: #171a1f;
+  --color-slate: #5b6470;
+  --color-hair: #ececf0;
+  /* Accent is a warm amber/honey (a premium, legible variant of yellow).
+     Token names kept as "mint" to avoid churn against the design source. */
+  --color-mint: #f5a524;
+  --color-mint-strong: #b45309;
+  --color-mint-wash: #fdf3df;
+  --color-sky-wash: #eaf1fb;
+  --color-blush: #b4472e;
+  --color-blush-wash: #fdeee9;
+}
 
 html,
 body,
@@ -11,4 +51,69 @@ body,
 
 body {
   margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background: #eef0f2;
+}
+
+/* Staggered reveal for the moment the plan lands on the patient's phone —
+   the demo climax. Sections fade up in sequence; disabled for reduced motion. */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.reveal {
+  animation: reveal-up 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+  }
+}
+
+/* Monogram-white patient surface. Near-white canvas with soft amber/sky washes
+   bleeding from the corners; large rounded white cards with diffuse shadows. */
+.mono-canvas {
+  background:
+    radial-gradient(90% 55% at 8% 0%, rgba(245, 165, 36, 0.12), transparent 60%),
+    radial-gradient(90% 55% at 100% 6%, rgba(96, 148, 220, 0.09), transparent 58%),
+    radial-gradient(120% 70% at 50% 102%, rgba(245, 165, 36, 0.06), transparent 62%),
+    #f7f8fa;
+}
+
+.mono-card {
+  background: #ffffff;
+  border: 1px solid rgba(23, 26, 31, 0.05);
+  box-shadow:
+    0 1px 2px rgba(23, 26, 31, 0.04),
+    0 12px 28px -18px rgba(23, 26, 31, 0.22);
+}
+
+.mono-nav {
+  background: rgba(247, 248, 250, 0.82);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border-top: 1px solid rgba(23, 26, 31, 0.06);
+}
+
+/* Translucent status-bar glass inside the phone frame. */
+.glass-nav {
+  background: rgba(248, 251, 250, 0.72);
+  backdrop-filter: blur(24px) saturate(1.35);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+}
+
+/* Soft object plinth behind a floating 3D render inside a list row. */
+.obj-plinth {
+  background:
+    radial-gradient(60% 60% at 50% 42%, rgba(18, 184, 134, 0.1), transparent 70%),
+    #f2f4f7;
 }

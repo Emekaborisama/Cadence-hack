@@ -32,3 +32,6 @@ pnpm-debug.log*
 
 # vite / pwa generated
 apps/web/dev-dist/
+
+# SQLite data (local persistence)
+apps/api/data/

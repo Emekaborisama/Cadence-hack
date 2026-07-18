@@ -1,83 +1,73 @@
 # Cadence
 
-**Trial-grade cardiometabolic support, delivered by AI.** The support layer that clips onto a GLP-1 prescription and delivers the four things clinical trials do — build the plan, give you a coach, check in on a rhythm, and review your data — so people stay on the pathway.
+**Trial-grade cardiometabolic support, delivered by AI.** Clips onto a GLP-1 prescription and delivers the four trial ingredients — personalized plan, named coach, adaptive cadence, reviewed logs — with humans only at judgment moments.
 
 eMed × OpenAI "Reimagine Health" hackathon · Jul 2026
 
-## Repo layout
+## Stack (monorepo)
 
-- `demo/` — the working prototype (Next.js + Tailwind). Consult→home handoff, retention loop, glucose monitoring, clinician edit/approve + inbox. Runs at `localhost:3100`.
-  - Full concept + build status: `demo/docs/VISION.md`
-  - Inspiration board: `demo/inspiration/inspiration-board.html`
-- `apps/` + `packages/` — the production monorepo (the rebuild, see below).
-
-## Run the demo
-
-```bash
-cd demo && pnpm install && pnpm dev   # http://localhost:3100
-```
-
-Two windows: `/clinic` (clinician) and `/patient` (mobile). Reset + choreography in `demo/README.md`.
-
-## Direction (in progress)
-
-Rebuild toward a white, premium, monogram.ai-style visual language on **HeroUI** + **Tremor**, visual-first (show the real object, not text).
-
----
-
-## Monorepo (the rebuild)
-
-A TypeScript monorepo (pnpm workspaces + Turborepo): a **PWA frontend** (Vite + React + [HeroUI](https://heroui.com/)) and a **Node backend** (Express) whose LLM layer is powered by **OpenAI**.
+Tofunmi’s scaffold, productized:
 
 ```
 apps/
-  web/       Vite + React + TS PWA, UI via HeroUI (Tailwind v4 + framer-motion)
-  api/       Node + Express + TS, OpenAI SDK as the LLM layer
+  web/       Vite + React + TS PWA · HeroUI · Tailwind v4
+  api/       Node + Express + TS · OpenAI (optional) · in-memory store
 packages/
-  shared/    Shared TS types (the chat contract used by both apps)
+  shared/    Shared domain types (the contract)
 ```
 
-### Prerequisites
+`AI_MODE=fixture` is the default — the demo runs with zero wifi. Flip to `live` for OpenAI structured outputs (protocol retrieval still grounds medical answers).
 
-- Node >= 20 (see `.nvmrc`)
-- pnpm (`corepack enable` or `npm i -g pnpm`)
-- An OpenAI API key
-
-### Setup
+## Setup
 
 ```bash
 pnpm install
-cp apps/api/.env.example apps/api/.env   # then add your OPENAI_API_KEY
-```
-
-### Develop
-
-```bash
+cp apps/api/.env.example apps/api/.env   # AI_MODE=fixture needs no key
 pnpm dev
 ```
 
-Runs both apps via Turborepo:
+- Web: http://localhost:5173  
+- API: http://localhost:3001 (`GET /health`, `GET/POST /api/state`)
 
-- Web: http://localhost:5173 (Vite proxies `/api` → the Node server)
-- API: http://localhost:3001 (`GET /health`, `POST /api/chat`)
+## Demo choreography (two windows) — the design flow
 
-### Quality gates
+Matches the design-complete prototype in `demo-ui/` (read-only reference).
 
-Intentionally relaxed for fast iteration:
+1. `/clinic` → **Start consult** — the transcript streams word-by-word; the care
+   plan assembles itself in the sidebar (medications, titration, monitoring,
+   red flags, protocols). Optionally **Edit** a dose.
+2. **Approve & send to patient** → within ~1s the `/patient` phone swaps from
+   its waiting state to the visual plan (medication cards with the clinician's
+   own "why", titration timeline, everyday actions, red flags, follow-up).
+3. Patient: **Check in with my care team** → the pre-filled "Nausea / moderate"
+   check-in → the clinician's protocol comes back, and the `/clinic` inbox
+   lights up with the flag — the closed loop.
+4. Patient Progress tab: **Log a reading** → an in-range reading is quietly
+   logged; **11.9** crosses the clinician's 4–7 target and flags the inbox.
+
+Reset from the clinic header anytime. (The earlier adherence-coach flow —
+onboard / coach chat / streak logging / RD queue — is still served by the same
+API and covered by the smoke test.)
+
+## API actions
+
+`POST /api/state`
+
+| action | body |
+|---|---|
+| `onboard` | — |
+| `coach` | `{ text }` |
+| `log` | `{ type, payload?, severity? }` |
+| `resolve` | `{ escalationId, note? }` |
+| `reset` | — |
+
+## Quality
 
 ```bash
-pnpm typecheck     # tsc across all packages
-pnpm lint          # eslint (flat config, warnings-biased)
-pnpm format        # prettier --write
-pnpm build         # production build of every app
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm smoke      # walks the full demo choreography against a running API (42 FR checks)
 ```
 
-### API
-
-`POST /api/chat`
-
-```json
-{ "messages": [{ "role": "user", "content": "Hello" }] }
-```
-
-Returns `{ "message": { "role": "assistant", "content": "..." }, "model": "gpt-4o-mini" }`.
+Contract: [`openapi.yaml`](openapi.yaml) · Requirements: [`FRD.md`](FRD.md) · Plan: [`DELIVERY.md`](DELIVERY.md) · UI porting guide: [`apps/web/DESIGN-MAP.md`](apps/web/DESIGN-MAP.md)
