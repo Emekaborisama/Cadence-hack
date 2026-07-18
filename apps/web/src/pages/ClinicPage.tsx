@@ -19,6 +19,9 @@ import InboxPanel from '../components/InboxPanel.js';
 
 const SELECTED_KEY = 'cadence.clinic.selectedId';
 
+// The cardiometabolic pathway conditions Cadence targets.
+const CONDITIONS = ['Diabetes — Type 2', 'Obesity', 'Cardiovascular disease'];
+
 export default function ClinicPage() {
   const { state, setState } = usePollState();
   // Selection survives a refresh — losing your working patient on F5 reads
@@ -220,14 +223,21 @@ export default function ClinicPage() {
               onValueChange={setNewName}
               classNames={{ inputWrapper: 'bg-paper' }}
             />
-            <Input
-              className="mt-2"
-              size="sm"
-              label="Condition / context (optional)"
-              value={newDetails}
-              onValueChange={setNewDetails}
-              classNames={{ inputWrapper: 'bg-paper' }}
-            />
+            <label className="mt-2 block">
+              <span className="text-[11px] font-medium text-muted">Condition</span>
+              <select
+                value={newDetails}
+                onChange={(e) => setNewDetails(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2.5 text-[13px] text-ink outline-none focus-visible:border-mint"
+              >
+                <option value="">Select condition…</option>
+                {CONDITIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
             <Button
               onPress={handleCreate}
               isDisabled={creating || !newName.trim()}
