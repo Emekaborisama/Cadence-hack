@@ -77,7 +77,12 @@ export default function TodayTab({
       <header className="reveal flex items-start justify-between" style={delay(0)}>
         <div>
           <div className="text-[12px] font-semibold uppercase tracking-[0.14em] text-mint-strong">
-            Day {streakDays} of your plan
+            Day {streakDays} of your plan ·{' '}
+            {new Date().toLocaleDateString('en-GB', {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+            })}
           </div>
           <h1
             className="mt-1 text-[30px] font-semibold leading-[1.05] text-ink2"

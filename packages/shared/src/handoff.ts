@@ -354,6 +354,10 @@ export const HANDOFF_PLAN_FIXTURE: HandoffPlan = {
 // A retention signal shown on the patient's home. Fixture value for the demo.
 export const STREAK_DAYS = 6;
 
+// Number of daily tasks on the patient's Today checklist — used by both the
+// patient ring and the clinician's adherence view to compute completion %.
+export const DAILY_TASK_COUNT = 6;
+
 // Seeded fasting-glucose history so the trend has context when the plan lands.
 // Morning readings trending down over the past week toward the target ceiling.
 export function seedGlucoseHistory(): GlucoseReading[] {

@@ -284,6 +284,20 @@ assert(s.inbox.length === 2 && s.inbox[0].kind === 'glucose' && s.inbox[0].patie
 s = await api({ action: 'markRead', id: s.inbox[0].id });
 assert(s.inbox[0].read === true, 'markRead → inbox item read');
 
+// ── Record CRUD: update + delete ───────────────────────────────────────────
+s = await api({ action: 'updatePatient', patientId: meera.id, name: 'Meera K', details: 'T2D, semaglutide titration' });
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.name === 'Meera K' && rec.plan.patientName === 'Meera K',
+  'updatePatient → renames record AND the plan display name');
+s = await api({ action: 'createPatient', name: 'ToDelete' });
+const doomed = s.records.find((r) => r.name === 'ToDelete');
+s = await api({ action: 'deletePatient', patientId: doomed.id });
+assert(!s.records.some((r) => r.id === doomed.id), 'deletePatient → record removed');
+assert(s.records.some((r) => r.id === meera.id) && s.records.some((r) => r.id === john.id),
+  'other records untouched by delete');
+assert(s.inbox.every((i) => i.patientId !== doomed.id),
+  "deleted patient's flags leave the clinic inbox");
+
 // ── Explainer: generated per record, cached ────────────────────────────────
 s = await api({ action: 'explain', patientId: meera.id });
 rec = s.records.find((r) => r.id === meera.id);

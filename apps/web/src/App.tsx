@@ -1,6 +1,38 @@
+import { Component, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import PatientPage from './pages/PatientPage.js';
 import ClinicPage from './pages/ClinicPage.js';
+
+// Last line of defense: a render crash shows a recoverable screen, never a
+// blank white page. (Data-layer normalization is the first line.)
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center bg-paper px-6 text-center">
+          <p className="font-serif text-3xl text-ink">Something hiccuped</p>
+          <p className="mt-2 max-w-md text-sm text-muted">
+            {String(this.state.error.message || this.state.error)}
+          </p>
+          <button
+            onClick={() => {
+              this.setState({ error: null });
+              window.location.reload();
+            }}
+            className="mt-6 rounded-xl bg-mint px-5 py-3 text-sm font-semibold text-ink2"
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Launcher linking the two demo surfaces, in the clinician paper palette.
 function Landing() {
@@ -54,11 +86,13 @@ function Landing() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/patient" element={<PatientPage />} />
-      <Route path="/clinic" element={<ClinicPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/patient" element={<PatientPage />} />
+        <Route path="/clinic" element={<ClinicPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ErrorBoundary>
   );
 }

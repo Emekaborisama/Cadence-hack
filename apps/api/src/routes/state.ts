@@ -290,6 +290,37 @@ stateRouter.post('/', async (req: Request, res: Response) => {
         return res.json(getState());
       }
 
+      case 'updatePatient': {
+        const { patientId, name, details } = body as Extract<
+          StateAction,
+          { action: 'updatePatient' }
+        >;
+        const record = requireRecord(res, patientId);
+        if (!record) return;
+        const patch: Partial<PatientRecord> = {};
+        if (name?.trim()) patch.name = name.trim();
+        if (details !== undefined) patch.details = details.trim() || undefined;
+        updateRecord(record.id, patch);
+        // Keep the plan's display name in step with a rename.
+        if (patch.name && record.plan) {
+          updateRecord(record.id, { plan: { ...record.plan, patientName: patch.name } });
+        }
+        return res.json(getState());
+      }
+
+      case 'deletePatient': {
+        const { patientId } = body as Extract<StateAction, { action: 'deletePatient' }>;
+        const record = requireRecord(res, patientId);
+        if (!record) return;
+        const state = getState();
+        setState({
+          records: state.records.filter((r) => r.id !== record.id),
+          // Their flags leave the clinic inbox with them.
+          inbox: state.inbox.filter((i) => i.patientId !== record.id),
+        });
+        return res.json(getState());
+      }
+
       case 'extract': {
         // Real entry point: the clinician pastes the consult transcript or
         // their notes; the AI structures it into a draft plan for review.

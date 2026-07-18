@@ -148,6 +148,8 @@ export type StateAction =
     }
   | { action: 'resolve'; escalationId: string; note?: string }
   | { action: 'createPatient'; name: string; details?: string }
+  | { action: 'updatePatient'; patientId: string; name?: string; details?: string }
+  | { action: 'deletePatient'; patientId: string }
   | { action: 'extract'; patientId: string; transcript: string }
   | { action: 'sendPlan'; patientId: string; plan?: PlanPatch }
   | {

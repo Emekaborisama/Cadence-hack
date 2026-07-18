@@ -206,6 +206,18 @@ function normalizeMedStatus(status: string): 'continued' | 'adjusted' | 'new' {
   return 'continued';
 }
 
+// Same treatment for lifestyle categories — an out-of-enum value must map to
+// something renderable, never crash a lookup.
+function normalizeCategory(
+  category: string,
+): 'monitoring' | 'movement' | 'diet' | 'other' {
+  const c = (category || '').toLowerCase();
+  if (/(monitor|check|track|measure|bp|blood|glucose|weigh)/.test(c)) return 'monitoring';
+  if (/(move|walk|exercis|activ|step|fitness)/.test(c)) return 'movement';
+  if (/(diet|food|eat|drink|nutrition|salt|sugar)/.test(c)) return 'diet';
+  return 'other';
+}
+
 export async function extractPlan(transcript: string): Promise<HandoffPlan> {
   if (env.aiMode === 'fixture') {
     return HANDOFF_PLAN_FIXTURE;
@@ -222,6 +234,15 @@ export async function extractPlan(transcript: string): Promise<HandoffPlan> {
         ...m,
         status: normalizeMedStatus(m.status),
       })),
+      // Every array the UI maps over must BE an array, and every enum must be
+      // in-set — a white screen is one undefined lookup away.
+      titrationSteps: result.titrationSteps ?? [],
+      lifestyleActions: (result.lifestyleActions ?? []).map((a) => ({
+        ...a,
+        category: normalizeCategory(a.category),
+      })),
+      redFlags: result.redFlags ?? [],
+      appointments: result.appointments ?? [],
       // Authored server-side, never model-written: safety protocols + targets.
       protocols: HANDOFF_PLAN_FIXTURE.protocols,
       glucoseTarget: HANDOFF_PLAN_FIXTURE.glucoseTarget,

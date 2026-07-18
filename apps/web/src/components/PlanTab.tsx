@@ -51,9 +51,9 @@ export default function PlanTab({
 
       <Section index={1} title="Your medicines">
         <div className="space-y-3">
-          {plan.medications.map((m) => {
+          {(plan.medications ?? []).map((m) => {
             const o = medObject(m.name);
-            const st = STATUS[m.status];
+            const st = STATUS[m.status] ?? STATUS.continued;
             return (
               <div key={m.id} className="mono-card overflow-hidden rounded-3xl">
                 <div className="flex items-center gap-3.5 p-2.5">
@@ -102,8 +102,8 @@ export default function PlanTab({
         <SimplifyCard patientId={patientId} explainer={explainer} onLoaded={onExplainerLoaded} />
       </section>
 
-      {plan.titrationSteps.length ? (
-        <Section index={2} title="Semaglutide, week by week">
+      {plan.titrationSteps?.length ? (
+        <Section index={2} title="Your medication, week by week">
           <div className="mono-card rounded-3xl p-5">
             <TitrationTimeline steps={plan.titrationSteps} />
           </div>
@@ -112,8 +112,9 @@ export default function PlanTab({
 
       <Section index={3} title="Everyday actions">
         <div className="space-y-2.5">
-          {plan.lifestyleActions.map((a) => {
-            const o = LIFE[a.category];
+          {(plan.lifestyleActions ?? []).map((a) => {
+            // Fallback keeps an out-of-enum category renderable, never a crash.
+            const o = LIFE[a.category] ?? LIFE.other;
             return (
               <div key={a.id} className="mono-card flex items-center gap-3.5 rounded-3xl p-2.5">
                 <span
@@ -138,7 +139,7 @@ export default function PlanTab({
 
       <Section index={4} title="When to get help">
         <div className="space-y-2.5">
-          {plan.redFlags.map((f) => (
+          {(plan.redFlags ?? []).map((f) => (
             <div
               key={f.id}
               className="rounded-3xl border border-[rgba(224,113,79,0.28)] bg-[#fbeadf] p-4"
@@ -160,7 +161,7 @@ export default function PlanTab({
         </div>
       </Section>
 
-      {plan.appointments.length ? (
+      {plan.appointments?.length ? (
         <Section index={5} title="Your follow-up">
           {plan.appointments.map((a) => (
             <div key={a.id} className="mono-card rounded-3xl p-4">
