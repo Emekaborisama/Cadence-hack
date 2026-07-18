@@ -30,6 +30,7 @@ export default function TodayTab({
   onCheckIn,
   onShowGuide,
   onView,
+  onSignOut,
 }: {
   patientId: string;
   plan: HandoffPlan;
@@ -39,6 +40,7 @@ export default function TodayTab({
   onCheckIn: () => void;
   onShowGuide: (key: string) => void;
   onView: (view: PatientView) => void;
+  onSignOut: () => void;
 }) {
   // The checklist IS the plan: derived from what the clinician sent, so the
   // Plan tab's actions and the streak checklist can never drift apart.
@@ -92,9 +94,15 @@ export default function TodayTab({
             {plan.patientName}
           </h1>
         </div>
-        <div className="mt-1 flex h-11 w-11 items-center justify-center rounded-full bg-white text-[15px] font-semibold text-mint-strong shadow-[0_6px_16px_-8px_rgba(23,26,31,0.3)]">
+        <button
+          onClick={() => {
+            if (window.confirm('Sign out of this record?')) onSignOut();
+          }}
+          title="Sign out"
+          className="mt-1 flex h-11 w-11 items-center justify-center rounded-full bg-white text-[15px] font-semibold text-mint-strong shadow-[0_6px_16px_-8px_rgba(23,26,31,0.3)] active:scale-95"
+        >
           {plan.patientName.slice(0, 1)}
-        </div>
+        </button>
       </header>
 
       {/* streak / consistency */}

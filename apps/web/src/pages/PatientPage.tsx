@@ -83,7 +83,7 @@ export default function PatientPage() {
         ) : !record.profile ? (
           <OnboardingFlow patientId={record.id} defaultName={record.name} onDone={onView} />
         ) : !record.planSent || !record.plan ? (
-          <WaitingState name={record.profile.name} code={record.id} />
+          <WaitingState name={record.profile.name} code={record.id} onSignOut={signOut} />
         ) : (
           <>
             <div key={tab} className="flex-1 overflow-y-auto">
@@ -97,6 +97,7 @@ export default function PatientPage() {
                   onCheckIn={() => setCheckInOpen(true)}
                   onShowGuide={setActiveGuide}
                   onView={onView}
+                  onSignOut={signOut}
                 />
               ) : null}
               {tab === 'plan' ? (
@@ -236,7 +237,15 @@ function SignIn({
   );
 }
 
-function WaitingState({ name, code }: { name: string; code: string }) {
+function WaitingState({
+  name,
+  code,
+  onSignOut,
+}: {
+  name: string;
+  code: string;
+  onSignOut: () => void;
+}) {
   return (
     <div
       className="flex h-full flex-col items-center justify-center px-9 text-center"
@@ -261,6 +270,12 @@ function WaitingState({ name, code }: { name: string; code: string }) {
       <p className="mt-6 text-[12px] text-slate/70">
         Signed in as {code} · checking automatically — nothing to do.
       </p>
+      <button
+        onClick={onSignOut}
+        className="mt-3 text-[12px] font-semibold text-slate underline underline-offset-2 hover:text-ink2"
+      >
+        Not you? Switch patient
+      </button>
     </div>
   );
 }
