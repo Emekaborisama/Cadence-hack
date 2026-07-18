@@ -132,116 +132,171 @@ const bad = await fetch(`${BASE}/api/state`, {
 });
 assert(bad.status === 400, 'coach without text → 400');
 
-// ══ Consult-to-home handoff flow (the design demo) ════════════════════════
+// ══ Consult-to-home handoff flow — multi-patient (the real app) ═══════════
 
-// ── Reset, then the REAL entry flow: paste → extract → review → send ──────
+const TRANSCRIPT =
+  'Dr: increasing metformin to 1000mg twice daily; starting semaglutide weekly injection.';
+
+// ── Reset → clean multi-patient state ─────────────────────────────────────
 s = await api({ action: 'reset' });
-assert(s.planSent === false && s.handoffPlan === null && s.inbox.length === 0,
-  'reset → handoff state clean');
-assert(s.draftPlan === null && s.patientInbox.length === 0,
-  'reset → no draft, patient inbox empty');
+assert(Array.isArray(s.records) && s.records.length === 0 && s.inbox.length === 0,
+  'reset → no records, clinic inbox empty');
 
-const badExtract = await fetch(`${BASE}/api/state`, {
+// ── Clinician creates the patient record and issues the code ──────────────
+const badCreate = await fetch(`${BASE}/api/state`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ action: 'extract', transcript: '  ' }),
+  body: JSON.stringify({ action: 'createPatient', name: ' ' }),
 });
-assert(badExtract.status === 400, 'extract without transcript → 400');
+assert(badCreate.status === 400, 'createPatient without name → 400');
 
-s = await api({
-  action: 'extract',
-  transcript: 'Dr: increasing metformin to 1000mg twice daily; starting semaglutide weekly.',
+s = await api({ action: 'createPatient', name: 'Meera', details: 'T2D review' });
+const meera = s.records[0];
+assert(/^CAD-[A-Z2-9]{4}$/.test(meera.id),
+  `record created with clinician-issued code (${meera.id})`);
+assert(meera.planSent === false && meera.profile === null && meera.streakDays === 0,
+  'new record starts clean: no plan, no profile, streak 0');
+
+// ── Unknown patient id is rejected ─────────────────────────────────────────
+const bad404 = await fetch(`${BASE}/api/state`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ action: 'extract', patientId: 'CAD-ZZZZ', transcript: TRANSCRIPT }),
 });
-assert(s.draftPlan !== null && s.draftPlan.medications.length > 0,
-  'extract → AI draft plan created for clinician review');
-assert(s.planSent === false && s.handoffPlan === null,
+assert(bad404.status === 404, 'action against unknown patient id → 404');
+
+// ── Extract → draft on the record, never patient-visible ──────────────────
+s = await api({ action: 'extract', patientId: meera.id, transcript: TRANSCRIPT });
+let rec = s.records.find((r) => r.id === meera.id);
+assert(rec.draftPlan !== null && rec.draftPlan.medications.length > 0,
+  'extract → AI draft on the record (FR: clinician review)');
+assert(rec.planSent === false && rec.plan === null,
   'draft is NOT patient-visible before approval');
 
-s = await api({ action: 'sendPlan' });
-assert(s.planSent === true && s.handoffPlan?.patientName === 'Meera',
-  'sendPlan → reviewed draft published to the patient');
-assert(s.draftPlan === null, 'draft cleared after send');
-assert(s.handoffPlan.medications.length === 2 && s.handoffPlan.protocols.length === 2,
-  'plan carries medications + clinician-authored protocols');
-assert(s.glucoseReadings.length > 0, 'glucose history seeded with the plan');
-assert(s.patientInbox.length === 1 && s.patientInbox[0].kind === 'plan',
-  'patient inbox received the plan-arrival message');
+// ── sendPlan cannot fire without a reviewed draft ──────────────────────────
+s = await api({ action: 'createPatient', name: 'John', details: 'Hypertension' });
+const john = s.records.find((r) => r.name === 'John');
+const noDraft = await fetch(`${BASE}/api/state`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ action: 'sendPlan', patientId: john.id }),
+});
+assert(noDraft.status === 400, 'sendPlan without an extracted draft → 400');
 
-// ── Clinician dose edit survives the send, protocols stay server-authored ─
-s = await api({ action: 'reset' });
+// ── Approve & send: plan published, streak seeded, inbox message ──────────
+s = await api({ action: 'sendPlan', patientId: meera.id });
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.planSent === true && rec.plan !== null && rec.draftPlan === null,
+  'sendPlan → reviewed draft published, draft cleared');
+assert(rec.plan.patientName === 'Meera', 'plan carries the record name');
+assert(rec.plan.protocols.length === 2, 'clinician-authored protocols attached');
+assert(rec.glucoseReadings.length > 0 && rec.streakDays > 0,
+  'glucose history + streak seeded with the plan');
+assert(rec.inbox.length === 1 && rec.inbox[0].kind === 'plan',
+  "patient's inbox received the plan-arrival message");
+
+// ── Records are isolated: John untouched by Meera's plan ──────────────────
+const johnRec = s.records.find((r) => r.id === john.id);
+assert(johnRec.planSent === false && johnRec.inbox.length === 0,
+  "second record is isolated — John unaffected by Meera's send");
+
+// ── Dose edit survives the send; protocols stay server-authored ───────────
+await api({ action: 'extract', patientId: john.id, transcript: TRANSCRIPT });
 s = await api({
   action: 'sendPlan',
+  patientId: john.id,
   plan: { medications: [{ id: 'med-metformin', name: 'Metformin', dose: '850 mg, twice a day', schedule: 'With meals', why: 'edited', status: 'adjusted' }] },
 });
-assert(s.handoffPlan.medications[0].dose === '850 mg, twice a day',
+rec = s.records.find((r) => r.id === john.id);
+assert(rec.plan.medications[0].dose === '850 mg, twice a day',
   'clinician dose edit is what the patient receives');
-assert(s.handoffPlan.protocols.length === 2,
-  'safety protocols survive the edit (server-authored, never overwritten)');
+assert(rec.plan.protocols.length === 2,
+  'safety protocols survive the edit (server-authored)');
 
-// ── Handoff beat 2: moderate nausea check-in → protocol + inbox flag ──────
-s = await api({
-  action: 'checkIn',
-  checkIn: { symptom: 'Nausea', severity: 'moderate', note: 'Queasy since the injection', loggedAt: new Date().toISOString() },
-});
-assert(s.latestResponse?.escalate === true && s.latestResponse.protocolSteps.length > 0,
-  'moderate nausea → clinician protocol served + escalated');
-assert(s.inbox.length === 1 && s.inbox[0].kind === 'check-in' && !s.inbox[0].read,
-  'check-in landed in the clinician inbox');
-assert(s.patientInbox[0].kind === 'check-in' && s.patientInbox[0].escalated === true,
-  'patient inbox received the check-in reply (marked escalated)');
-
-// ── Mild check-in does NOT flood the inbox ────────────────────────────────
-s = await api({
-  action: 'checkIn',
-  checkIn: { symptom: 'Nausea', severity: 'mild', loggedAt: new Date().toISOString() },
-});
-assert(s.inbox.length === 1, 'mild nausea → protocol served, no new inbox flag');
-
-// ── Handoff beat 3: glucose readings against the clinician target ─────────
-const glucoseCountBefore = s.glucoseReadings.length;
-s = await api({ action: 'logGlucose', value: 6.2, context: 'fasting' });
-assert(s.glucoseReadings.length === glucoseCountBefore + 1, 'in-range reading logged');
-assert(s.latestResponse.escalate === false, 'in-range reading → no escalation');
-assert(s.inbox.length === 1, 'in-range reading does not flag the inbox');
-
-s = await api({ action: 'logGlucose', value: 11.9, context: 'fasting' });
-assert(s.glucoseReadings.at(-1).flagged === true, 'above-target reading flagged (11.9 > 7)');
-assert(s.inbox.length === 2 && s.inbox[0].kind === 'glucose',
-  'flagged reading escalated to the clinician inbox');
-
-// ── Handoff beat 4: clinician marks the flag read ─────────────────────────
-s = await api({ action: 'markRead', id: s.inbox[0].id });
-assert(s.inbox[0].read === true, 'markRead → inbox item read');
-
-// ── Patient onboarding: consent is load-bearing ───────────────────────────
+// ── Patient onboarding on THEIR record: consent is load-bearing ────────────
 const noConsent = await fetch(`${BASE}/api/state`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     action: 'patientOnboard',
+    patientId: meera.id,
     profile: { name: 'Meera', consentGiven: false, remindersEnabled: true },
   }),
 });
-assert(noConsent.status === 400, 'onboarding without consent → 400 (consent is required)');
+assert(noConsent.status === 400, 'onboarding without consent → 400');
 
 s = await api({
   action: 'patientOnboard',
+  patientId: meera.id,
   profile: { name: 'Meera', consentGiven: true, remindersEnabled: true, injectionDay: 'Sun' },
 });
-assert(s.patientProfile?.consentGiven === true && s.patientProfile.injectionDay === 'Sun',
-  'onboarding with consent → profile stored');
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.profile?.consentGiven === true && rec.profile.injectionDay === 'Sun',
+  'onboarding stored on the record');
 
-// ── Explainer: generated once, cached on the plan ─────────────────────────
-s = await api({ action: 'explain' });
-assert(s.explainer !== null && s.explainer.levels.length === 4,
-  'explain → 4 progressive levels generated');
-const cachedTitle = s.explainer.title;
-s = await api({ action: 'explain' });
-assert(s.explainer.title === cachedTitle, 'explain again → served from cache');
+// ── Daily rhythm is server-tracked (refresh-proof) ─────────────────────────
+const streakBefore = rec.streakDays;
+s = await api({ action: 'toggleTask', patientId: meera.id, taskId: 'walk' });
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.tasksDone.includes('walk'), 'task completion recorded server-side');
+const polled2 = await api();
+assert(polled2.records.find((r) => r.id === meera.id).tasksDone.includes('walk'),
+  'task completion survives a fresh state read (refresh-proof)');
+s = await api({ action: 'toggleTask', patientId: meera.id, taskId: 'walk' });
+rec = s.records.find((r) => r.id === meera.id);
+assert(!rec.tasksDone.includes('walk') && rec.streakDays === streakBefore,
+  'toggle off works; same-day toggles never inflate the streak');
 
-// ── Reset leaves it clean for the next rehearsal (FR-6.4) ─────────────────
+// ── Check-in: protocol served, both inboxes correct ────────────────────────
+s = await api({
+  action: 'checkIn',
+  patientId: meera.id,
+  checkIn: { symptom: 'Nausea', severity: 'moderate', note: 'Queasy since the injection', loggedAt: new Date().toISOString() },
+});
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.latestResponse?.escalate === true && rec.latestResponse.protocolSteps.length > 0,
+  'moderate nausea → clinician protocol served + escalated');
+assert(rec.inbox[0].kind === 'check-in' && rec.inbox[0].escalated === true,
+  "patient's inbox got the reply (marked escalated)");
+assert(s.inbox.length === 1 && s.inbox[0].patientId === meera.id && s.inbox[0].patientName === 'Meera',
+  'clinic inbox flag carries patient identity');
+
+s = await api({
+  action: 'checkIn',
+  patientId: meera.id,
+  checkIn: { symptom: 'Nausea', severity: 'mild', loggedAt: new Date().toISOString() },
+});
+assert(s.inbox.length === 1, 'mild nausea → no new clinic flag');
+
+// ── Glucose against the clinician target, per record ───────────────────────
+const gBefore = s.records.find((r) => r.id === meera.id).glucoseReadings.length;
+s = await api({ action: 'logGlucose', patientId: meera.id, value: 6.2, context: 'fasting' });
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.glucoseReadings.length === gBefore + 1 && rec.latestResponse.escalate === false,
+  'in-range reading logged, no escalation');
+s = await api({ action: 'logGlucose', patientId: meera.id, value: 11.9, context: 'fasting' });
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.glucoseReadings.at(-1).flagged === true, 'above-target reading flagged');
+assert(s.inbox.length === 2 && s.inbox[0].kind === 'glucose' && s.inbox[0].patientName === 'Meera',
+  'flagged reading escalated to clinic inbox with identity');
+
+// ── Clinician marks the flag read ──────────────────────────────────────────
+s = await api({ action: 'markRead', id: s.inbox[0].id });
+assert(s.inbox[0].read === true, 'markRead → inbox item read');
+
+// ── Explainer: generated per record, cached ────────────────────────────────
+s = await api({ action: 'explain', patientId: meera.id });
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.explainer !== null && rec.explainer.levels.length === 4,
+  'explain → 4 progressive levels on the record');
+const cachedTitle = rec.explainer.title;
+s = await api({ action: 'explain', patientId: meera.id });
+assert(s.records.find((r) => r.id === meera.id).explainer.title === cachedTitle,
+  'explain again → served from cache');
+
+// ── Reset leaves it clean for the next rehearsal ───────────────────────────
 s = await api({ action: 'reset' });
-assert(!s.onboarded && s.escalations.length === 0 && !s.planSent && s.inbox.length === 0,
-  'final reset → clean seeded state (FR-6.4)');
+assert(!s.onboarded && s.escalations.length === 0 && s.records.length === 0 && s.inbox.length === 0,
+  'final reset → clean seeded state');
 
 console.log(`\nAll ${step} checks passed — demo choreography is green.\n`);

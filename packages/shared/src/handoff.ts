@@ -120,14 +120,40 @@ export interface GlucoseTrend {
 }
 
 // One entry in the clinician's between-visit inbox. The source is either a
-// symptom check-in or a flagged glucose reading.
+// symptom check-in or a flagged glucose reading. Carries the patient identity
+// so a multi-patient inbox reads correctly.
 export interface InboxItem {
   id: string;
+  patientId: string;
+  patientName: string;
   kind: 'check-in' | 'glucose';
   checkIn?: CheckIn;
   reading?: GlucoseReading;
   response: CheckInResponse;
   read: boolean;
+}
+
+// A patient record, created BY THE CLINICIAN. The record id is a short code
+// (like a booking reference) the clinician hands to the patient; the patient
+// enters it to access their record. Production path: NHS login — identity
+// always originates on the care-provider side, never self-asserted.
+export interface PatientRecord {
+  id: string; // short clinician-issued code, e.g. "CAD-7K2F"
+  name: string;
+  details?: string; // condition / context the clinician entered
+  createdAt: string;
+  profile: PatientProfile | null; // set when the patient onboards (consent)
+  planSent: boolean;
+  draftPlan: HandoffPlan | null; // AI draft under clinician review — never patient-visible
+  plan: HandoffPlan | null;
+  latestResponse: CheckInResponse | null;
+  glucoseReadings: GlucoseReading[];
+  inbox: PatientMessage[]; // the patient's own messages from the care team
+  explainer: Explainer | null;
+  // Daily rhythm — server-tracked so nothing resets on refresh.
+  streakDays: number;
+  taskDate: string; // YYYY-MM-DD the tasksDone list belongs to
+  tasksDone: string[]; // task ids completed on taskDate
 }
 
 // Patient-side onboarding profile. Consent is the load-bearing field — the

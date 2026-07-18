@@ -8,9 +8,11 @@ import { explain } from '../api.js';
 // plan (live mode) or scripted (fixture); either way it's a rephrasing of what
 // was said, never new medical advice. Generated once per plan, cached server-side.
 export default function SimplifyCard({
+  patientId,
   explainer,
   onLoaded,
 }: {
+  patientId: string;
   explainer: Explainer | null;
   onLoaded: (e: Explainer) => void;
 }) {
@@ -24,12 +26,13 @@ export default function SimplifyCard({
     if (explainer || requested.current) return;
     requested.current = true;
     setLoading(true);
-    explain()
+    explain(patientId)
       .then((state) => {
-        if (state.explainer) onLoaded(state.explainer);
+        const record = state.records.find((r) => r.id === patientId);
+        if (record?.explainer) onLoaded(record.explainer);
       })
       .finally(() => setLoading(false));
-  }, [explainer, onLoaded]);
+  }, [explainer, onLoaded, patientId]);
 
   if (!explainer) {
     return (

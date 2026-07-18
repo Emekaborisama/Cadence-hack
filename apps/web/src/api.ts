@@ -2,6 +2,7 @@ import type {
   AppState,
   CheckIn,
   LogType,
+  PatientRecord,
   PlanPatch,
   StateAction,
 } from '@cadence/shared';
@@ -27,32 +28,55 @@ export async function fetchState(): Promise<ClientState> {
   return res.json();
 }
 
+// Look a patient record up by its clinician-issued code (case-insensitive).
+export function findRecord(
+  state: ClientState | null,
+  patientId: string | null,
+): PatientRecord | null {
+  if (!state || !patientId) return null;
+  return (
+    state.records.find((r) => r.id.toUpperCase() === patientId.toUpperCase()) ??
+    null
+  );
+}
+
+// Adherence-coach flow (legacy demo surface).
 export const onboard = () => postState({ action: 'onboard' });
-export const resetDemo = () => postState({ action: 'reset' });
 export const sendCoach = (text: string) => postState({ action: 'coach', text });
 export const resolveEscalation = (escalationId: string, note?: string) =>
   postState({ action: 'resolve', escalationId, note });
-
 export const logEntry = (
   type: LogType,
   payload?: Record<string, unknown>,
   severity?: 'mild' | 'moderate' | 'severe',
 ) => postState({ action: 'log', type, payload, severity });
 
-// Consult-to-home handoff actions (the design flow).
-export const extractPlan = (transcript: string) =>
-  postState({ action: 'extract', transcript });
-export const sendPlan = (plan?: PlanPatch, transcript?: string) =>
-  postState({ action: 'sendPlan', plan, transcript });
-export const submitCheckIn = (checkIn: CheckIn) =>
-  postState({ action: 'checkIn', checkIn });
-export const logGlucose = (value: number, context: 'fasting' | 'post-meal') =>
-  postState({ action: 'logGlucose', value, context });
+// Consult-to-home handoff flow (multi-patient).
+export const resetDemo = () => postState({ action: 'reset' });
+export const createPatient = (name: string, details?: string) =>
+  postState({ action: 'createPatient', name, details });
+export const extractPlan = (patientId: string, transcript: string) =>
+  postState({ action: 'extract', patientId, transcript });
+export const sendPlan = (patientId: string, plan?: PlanPatch) =>
+  postState({ action: 'sendPlan', patientId, plan });
+export const patientOnboard = (
+  patientId: string,
+  profile: {
+    name: string;
+    consentGiven: boolean;
+    remindersEnabled: boolean;
+    injectionDay?: string;
+  },
+) => postState({ action: 'patientOnboard', patientId, profile });
+export const explain = (patientId: string, concept?: string) =>
+  postState({ action: 'explain', patientId, concept });
+export const submitCheckIn = (patientId: string, checkIn: CheckIn) =>
+  postState({ action: 'checkIn', patientId, checkIn });
+export const logGlucose = (
+  patientId: string,
+  value: number,
+  context: 'fasting' | 'post-meal',
+) => postState({ action: 'logGlucose', patientId, value, context });
+export const toggleTask = (patientId: string, taskId: string) =>
+  postState({ action: 'toggleTask', patientId, taskId });
 export const markRead = (id: string) => postState({ action: 'markRead', id });
-export const patientOnboard = (profile: {
-  name: string;
-  consentGiven: boolean;
-  remindersEnabled: boolean;
-  injectionDay?: string;
-}) => postState({ action: 'patientOnboard', profile });
-export const explain = (concept?: string) => postState({ action: 'explain', concept });

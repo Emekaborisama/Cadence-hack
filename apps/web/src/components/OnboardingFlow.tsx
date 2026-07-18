@@ -8,12 +8,16 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 // Patient onboarding — welcome → details + consent. Consent is the load-
 // bearing step: the entire care-team data flow exists because it was granted.
 export default function OnboardingFlow({
+  patientId,
+  defaultName,
   onDone,
 }: {
+  patientId: string;
+  defaultName: string;
   onDone: (state: ClientState) => void;
 }) {
   const [step, setStep] = useState<0 | 1>(0);
-  const [name, setName] = useState('Meera');
+  const [name, setName] = useState(defaultName);
   const [consent, setConsent] = useState(false);
   const [reminders, setReminders] = useState(true);
   const [injectionDay, setInjectionDay] = useState('Sun');
@@ -24,7 +28,7 @@ export default function OnboardingFlow({
     setSubmitting(true);
     setError(null);
     try {
-      const state = await patientOnboard({
+      const state = await patientOnboard(patientId, {
         name,
         consentGiven: consent,
         remindersEnabled: reminders,

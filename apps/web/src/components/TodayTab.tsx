@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Button } from '@heroui/react';
 import type { CheckInResponse, HandoffPlan } from '@cadence/shared';
+import { toggleTask } from '../api.js';
+import type { ClientState } from '../api.js';
 
 // Today's actions, each led by its real photographic object (monogram move).
 type Task = {
@@ -25,29 +27,44 @@ const TASKS: Task[] = [
 const delay = (i: number) => ({ animationDelay: `${i * 70}ms` });
 
 export default function TodayTab({
+  patientId,
   plan,
   streakDays,
+  tasksDone,
   checkInResponse,
   onCheckIn,
   onShowGuide,
+  onState,
 }: {
+  patientId: string;
   plan: HandoffPlan;
   streakDays: number;
+  tasksDone: string[];
   checkInResponse: CheckInResponse | null;
   onCheckIn: () => void;
   onShowGuide: (key: string) => void;
+  onState: (state: ClientState) => void;
 }) {
-  const [done, setDone] = useState<Set<string>>(() => new Set(['metformin-am']));
-  const toggle = (id: string) =>
-    setDone((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  // Server-tracked completions: survive refresh, other devices, and restarts.
+  // Optimistic local echo so taps feel instant while the action round-trips.
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const done = new Set(tasksDone);
+  for (const id of pending) {
+    if (done.has(id)) done.delete(id);
+    else done.add(id);
+  }
+  const toggle = (id: string) => {
+    setPending((prev) => new Set(prev).add(id));
+    toggleTask(patientId, id)
+      .then(onState)
+      .finally(() =>
+        setPending((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        }),
+      );
+  };
   const completed = TASKS.filter((t) => done.has(t.id)).length;
   const pct = completed / TASKS.length;
 

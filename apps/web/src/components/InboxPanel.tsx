@@ -53,6 +53,12 @@ export default function InboxPanel({
               <div key={item.id} className={`px-5 py-4 ${item.read ? 'opacity-55' : ''}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-paper-2 px-2 py-0.5 text-[12px] font-semibold text-ink">
+                      {item.patientName}
+                      <span className="ml-1.5 font-mono text-[10px] font-medium text-mint-strong">
+                        {item.patientId}
+                      </span>
+                    </span>
                     <span className="text-[15px] font-semibold text-ink">{title}</span>
                     {tag ? (
                       <span

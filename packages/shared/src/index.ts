@@ -117,17 +117,7 @@ export interface Escalation {
   clinicianNote?: string;
 }
 
-import type {
-  CheckIn,
-  CheckInResponse,
-  Explainer,
-  GlucoseReading,
-  HandoffPlan,
-  InboxItem,
-  PatientMessage,
-  PatientProfile,
-  PlanPatch,
-} from './handoff.js';
+import type { CheckIn, InboxItem, PatientRecord, PlanPatch } from './handoff.js';
 
 export * from './handoff.js';
 
@@ -140,16 +130,10 @@ export interface AppState {
   coachThread: CoachMessage[];
   escalations: Escalation[];
   latestReview: string | null;
-  // Consult-to-home handoff surface (the design flow).
-  planSent: boolean;
-  draftPlan: HandoffPlan | null; // AI-extracted, awaiting clinician review — never patient-visible
-  handoffPlan: HandoffPlan | null;
-  latestResponse: CheckInResponse | null; // last check-in/glucose response shown to the patient
-  glucoseReadings: GlucoseReading[];
-  inbox: InboxItem[]; // clinician's between-visit inbox
-  patientInbox: PatientMessage[]; // patient's messages from the care team
-  patientProfile: PatientProfile | null; // set by patient onboarding; consent lives here
-  explainer: Explainer | null; // cached "explain it simpler" levels for the current plan
+  // Consult-to-home handoff surface (the design flow), multi-patient:
+  // clinician-created records keyed by a short patient code.
+  records: PatientRecord[];
+  inbox: InboxItem[]; // clinician's between-visit inbox, across all patients
   updatedAt: number;
 }
 
@@ -163,10 +147,12 @@ export type StateAction =
       severity?: 'mild' | 'moderate' | 'severe';
     }
   | { action: 'resolve'; escalationId: string; note?: string }
-  | { action: 'extract'; transcript: string }
-  | { action: 'sendPlan'; plan?: PlanPatch; transcript?: string }
+  | { action: 'createPatient'; name: string; details?: string }
+  | { action: 'extract'; patientId: string; transcript: string }
+  | { action: 'sendPlan'; patientId: string; plan?: PlanPatch }
   | {
       action: 'patientOnboard';
+      patientId: string;
       profile: {
         name: string;
         consentGiven: boolean;
@@ -174,8 +160,14 @@ export type StateAction =
         injectionDay?: string;
       };
     }
-  | { action: 'explain'; concept?: string }
-  | { action: 'checkIn'; checkIn: CheckIn }
-  | { action: 'logGlucose'; value: number; context?: 'fasting' | 'post-meal' }
+  | { action: 'explain'; patientId: string; concept?: string }
+  | { action: 'checkIn'; patientId: string; checkIn: CheckIn }
+  | {
+      action: 'logGlucose';
+      patientId: string;
+      value: number;
+      context?: 'fasting' | 'post-meal';
+    }
+  | { action: 'toggleTask'; patientId: string; taskId: string }
   | { action: 'markRead'; id: string }
   | { action: 'reset' };

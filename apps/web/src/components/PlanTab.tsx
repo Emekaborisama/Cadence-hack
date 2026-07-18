@@ -25,10 +25,12 @@ const STATUS: Record<Medication['status'], { label: string; bg: string; fg: stri
 };
 
 export default function PlanTab({
+  patientId,
   plan,
   explainer,
   onExplainerLoaded,
 }: {
+  patientId: string;
   plan: HandoffPlan;
   explainer: Explainer | null;
   onExplainerLoaded: (e: Explainer) => void;
@@ -97,7 +99,7 @@ export default function PlanTab({
       </Section>
 
       <section className="reveal mt-4" style={delay(2)}>
-        <SimplifyCard explainer={explainer} onLoaded={onExplainerLoaded} />
+        <SimplifyCard patientId={patientId} explainer={explainer} onLoaded={onExplainerLoaded} />
       </section>
 
       {plan.titrationSteps.length ? (

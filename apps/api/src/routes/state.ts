@@ -1,16 +1,18 @@
+import { randomBytes } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import type {
   Escalation,
   GlucoseReading,
   HandoffPlan,
   LogEntry,
+  PatientRecord,
   StateAction,
 } from '@cadence/shared';
 import {
-  CONSULT_TRANSCRIPT,
   isFlagged,
   respondToGlucose,
   seedGlucoseHistory,
+  STREAK_DAYS,
 } from '@cadence/shared';
 import {
   coachRespond,
@@ -23,10 +25,11 @@ import {
 import {
   addCoachMessage,
   addEscalation,
-  addGlucoseReading,
   addInboxItem,
   addLog,
   addPatientMessage,
+  addRecord,
+  getRecord,
   getState,
   markInboxRead,
   resetState,
@@ -34,10 +37,41 @@ import {
   setPlan,
   setState,
   updateEscalation,
+  updateRecord,
 } from '../store.js';
 import { env } from '../env.js';
 
 export const stateRouter: Router = Router();
+
+// Clinician-issued patient code — short, unambiguous, typeable on a phone.
+function newPatientCode(): string {
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = randomBytes(4);
+  let code = '';
+  for (const b of bytes) code += alphabet[b % alphabet.length];
+  return `CAD-${code}`;
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Resolve a record or respond 404. Returns undefined after sending the error.
+function requireRecord(
+  res: Response,
+  patientId: string | undefined,
+): PatientRecord | undefined {
+  if (!patientId?.trim()) {
+    res.status(400).json({ error: 'patientId is required' });
+    return undefined;
+  }
+  const record = getRecord(patientId);
+  if (!record) {
+    res.status(404).json({ error: `No patient record for id ${patientId}` });
+    return undefined;
+  }
+  return record;
+}
 
 stateRouter.get('/', (_req: Request, res: Response) => {
   res.json({ ...getState(), aiMode: env.aiMode });
@@ -225,47 +259,94 @@ stateRouter.post('/', async (req: Request, res: Response) => {
         return res.json(getState());
       }
 
+      case 'createPatient': {
+        // The clinician creates the record and hands the code to the patient.
+        // Identity originates on the care-provider side, never self-asserted.
+        const { name, details } = body as Extract<
+          StateAction,
+          { action: 'createPatient' }
+        >;
+        if (!name?.trim()) {
+          return res.status(400).json({ error: 'name is required' });
+        }
+        const record: PatientRecord = {
+          id: newPatientCode(),
+          name: name.trim(),
+          details: details?.trim() || undefined,
+          createdAt: new Date().toISOString(),
+          profile: null,
+          planSent: false,
+          draftPlan: null,
+          plan: null,
+          latestResponse: null,
+          glucoseReadings: [],
+          inbox: [],
+          explainer: null,
+          streakDays: 0,
+          taskDate: today(),
+          tasksDone: [],
+        };
+        addRecord(record);
+        return res.json(getState());
+      }
+
       case 'extract': {
         // Real entry point: the clinician pastes the consult transcript or
         // their notes; the AI structures it into a draft plan for review.
         // The draft is never patient-visible — only sendPlan publishes it.
-        const { transcript } = body as Extract<StateAction, { action: 'extract' }>;
+        const { patientId, transcript } = body as Extract<
+          StateAction,
+          { action: 'extract' }
+        >;
+        const record = requireRecord(res, patientId);
+        if (!record) return;
         if (!transcript?.trim()) {
           return res.status(400).json({ error: 'transcript is required' });
         }
         const draft = await extractPlan(transcript);
-        setState({ draftPlan: draft });
+        updateRecord(record.id, {
+          draftPlan: { ...draft, patientName: record.name },
+        });
         return res.json(getState());
       }
 
       case 'sendPlan': {
         // Clinician approval gate. Base = the reviewed draft when one exists
-        // (no second AI call), else fresh extraction. Screen edits merge over
-        // the base; safety protocols and targets stay server-authored.
-        const { plan: edited, transcript } = body as Extract<
+        // (no second AI call). Screen edits merge over the base; safety
+        // protocols and targets stay server-authored.
+        const { patientId, plan: edited } = body as Extract<
           StateAction,
           { action: 'sendPlan' }
         >;
-        const state = getState();
-        const base =
-          state.draftPlan ?? (await extractPlan(transcript || CONSULT_TRANSCRIPT));
+        const record = requireRecord(res, patientId);
+        if (!record) return;
+        if (!record.draftPlan) {
+          return res
+            .status(400)
+            .json({ error: 'Nothing to send — extract a plan first' });
+        }
+        const base = record.draftPlan;
         const plan: HandoffPlan = edited
           ? {
               ...base,
               ...edited,
+              patientName: record.name,
               // Authored server-side, never overwritten by the edit.
               protocols: base.protocols,
               glucoseTarget: base.glucoseTarget,
             }
           : base;
-        setState({
-          handoffPlan: plan,
+        updateRecord(record.id, {
+          plan,
           draftPlan: null,
           planSent: true,
           glucoseReadings: seedGlucoseHistory(),
           explainer: null, // new plan → regenerate the explainer on next open
+          streakDays: STREAK_DAYS, // seeded rhythm so the demo shows a running streak
+          taskDate: today(),
+          tasksDone: [],
         });
-        addPatientMessage({
+        addPatientMessage(record.id, {
           id: `pmsg-${Date.now()}`,
           kind: 'plan',
           title: 'Your care plan has arrived',
@@ -276,14 +357,18 @@ stateRouter.post('/', async (req: Request, res: Response) => {
       }
 
       case 'checkIn': {
-        const { checkIn } = body as Extract<StateAction, { action: 'checkIn' }>;
+        const { patientId, checkIn } = body as Extract<
+          StateAction,
+          { action: 'checkIn' }
+        >;
+        const record = requireRecord(res, patientId);
+        if (!record) return;
         if (!checkIn?.symptom) {
           return res.status(400).json({ error: 'checkIn.symptom is required' });
         }
-        const state = getState();
-        const response = respondToCheckIn(checkIn, state.handoffPlan);
-        setState({ latestResponse: response });
-        addPatientMessage({
+        const response = respondToCheckIn(checkIn, record.plan);
+        updateRecord(record.id, { latestResponse: response });
+        addPatientMessage(record.id, {
           id: `pmsg-${Date.now()}`,
           kind: 'check-in',
           title: `About your ${checkIn.symptom.toLowerCase()}`,
@@ -295,6 +380,8 @@ stateRouter.post('/', async (req: Request, res: Response) => {
         if (response.escalate) {
           addInboxItem({
             id: `inbox-${Date.now()}`,
+            patientId: record.id,
+            patientName: record.name,
             kind: 'check-in',
             checkIn,
             response,
@@ -305,15 +392,16 @@ stateRouter.post('/', async (req: Request, res: Response) => {
       }
 
       case 'logGlucose': {
-        const { value, context } = body as Extract<
+        const { patientId, value, context } = body as Extract<
           StateAction,
           { action: 'logGlucose' }
         >;
+        const record = requireRecord(res, patientId);
+        if (!record) return;
         if (!Number.isFinite(Number(value))) {
           return res.status(400).json({ error: 'A numeric value is required' });
         }
-        const state = getState();
-        const target = state.handoffPlan?.glucoseTarget ?? { low: 4, high: 7 };
+        const target = record.plan?.glucoseTarget ?? { low: 4, high: 7 };
         const reading: GlucoseReading = {
           id: `glu-${Date.now()}`,
           value: Number(value),
@@ -321,10 +409,12 @@ stateRouter.post('/', async (req: Request, res: Response) => {
           loggedAt: new Date().toISOString(),
           flagged: isFlagged(Number(value), target),
         };
-        addGlucoseReading(reading);
         const response = respondToGlucose(reading, target);
-        setState({ latestResponse: response });
-        addPatientMessage({
+        updateRecord(record.id, {
+          glucoseReadings: [...record.glucoseReadings, reading],
+          latestResponse: response,
+        });
+        addPatientMessage(record.id, {
           id: `pmsg-${Date.now()}`,
           kind: 'glucose',
           title: `Your ${reading.value} mmol/L reading`,
@@ -336,12 +426,45 @@ stateRouter.post('/', async (req: Request, res: Response) => {
         if (response.escalate) {
           addInboxItem({
             id: `inbox-${Date.now()}`,
+            patientId: record.id,
+            patientName: record.name,
             kind: 'glucose',
             reading,
             response,
             read: false,
           });
         }
+        return res.json(getState());
+      }
+
+      case 'toggleTask': {
+        // Server-tracked daily rhythm: task completions and streak survive
+        // refreshes and live on the record, not in the browser.
+        const { patientId, taskId } = body as Extract<
+          StateAction,
+          { action: 'toggleTask' }
+        >;
+        const record = requireRecord(res, patientId);
+        if (!record) return;
+        if (!taskId?.trim()) {
+          return res.status(400).json({ error: 'taskId is required' });
+        }
+        const date = today();
+        // New day → fresh checklist; completing anything today extends the
+        // streak by one (once per day). Simple by design — production would
+        // handle gaps/timezones properly.
+        let tasksDone = record.taskDate === date ? [...record.tasksDone] : [];
+        let streakDays = record.streakDays;
+        const had = tasksDone.includes(taskId);
+        if (had) {
+          tasksDone = tasksDone.filter((t) => t !== taskId);
+        } else {
+          if (tasksDone.length === 0 && record.taskDate !== date) {
+            streakDays += 1;
+          }
+          tasksDone.push(taskId);
+        }
+        updateRecord(record.id, { tasksDone, taskDate: date, streakDays });
         return res.json(getState());
       }
 
@@ -354,7 +477,12 @@ stateRouter.post('/', async (req: Request, res: Response) => {
       }
 
       case 'patientOnboard': {
-        const { profile } = body as Extract<StateAction, { action: 'patientOnboard' }>;
+        const { patientId, profile } = body as Extract<
+          StateAction,
+          { action: 'patientOnboard' }
+        >;
+        const record = requireRecord(res, patientId);
+        if (!record) return;
         if (!profile?.name?.trim()) {
           return res.status(400).json({ error: 'profile.name is required' });
         }
@@ -362,8 +490,8 @@ stateRouter.post('/', async (req: Request, res: Response) => {
           // Consent is the basis for the entire data flow — no consent, no app.
           return res.status(400).json({ error: 'consent is required to continue' });
         }
-        setState({
-          patientProfile: {
+        updateRecord(record.id, {
+          profile: {
             name: profile.name.trim(),
             consentGiven: true,
             remindersEnabled: Boolean(profile.remindersEnabled),
@@ -375,14 +503,18 @@ stateRouter.post('/', async (req: Request, res: Response) => {
       }
 
       case 'explain': {
-        const { concept } = body as Extract<StateAction, { action: 'explain' }>;
-        const state = getState();
+        const { patientId, concept } = body as Extract<
+          StateAction,
+          { action: 'explain' }
+        >;
+        const record = requireRecord(res, patientId);
+        if (!record) return;
         // Cached per plan — one generation serves every open of the card.
-        if (state.explainer) {
-          return res.json(state);
+        if (record.explainer) {
+          return res.json(getState());
         }
-        const explainer = await explainConcept(state.handoffPlan, concept);
-        setState({ explainer });
+        const explainer = await explainConcept(record.plan, concept);
+        updateRecord(record.id, { explainer });
         return res.json(getState());
       }
 

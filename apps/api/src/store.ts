@@ -5,9 +5,9 @@ import type {
   LogEntry,
   CoachMessage,
   CarePlan,
-  GlucoseReading,
   InboxItem,
   PatientMessage,
+  PatientRecord,
 } from '@cadence/shared';
 import { MEERA } from './fixtures/patient.js';
 import { INITIAL_GAME } from './fixtures/game.js';
@@ -31,15 +31,8 @@ function freshState(): AppState {
     ],
     escalations: [],
     latestReview: null,
-    planSent: false,
-    draftPlan: null,
-    handoffPlan: null,
-    latestResponse: null,
-    glucoseReadings: [],
+    records: [],
     inbox: [],
-    patientInbox: [],
-    patientProfile: null,
-    explainer: null,
     updatedAt: Date.now(),
   };
 }
@@ -121,12 +114,36 @@ export function markInboxRead(id: string): AppState {
   });
 }
 
-export function addGlucoseReading(reading: GlucoseReading): AppState {
+// ── Patient records (multi-patient handoff) ────────────────────────────────
+
+export function addRecord(record: PatientRecord): AppState {
   const state = getState();
-  return setState({ glucoseReadings: [...state.glucoseReadings, reading] });
+  return setState({ records: [record, ...state.records] });
 }
 
-export function addPatientMessage(msg: PatientMessage): AppState {
+export function getRecord(patientId: string): PatientRecord | undefined {
+  return getState().records.find(
+    (r) => r.id.toUpperCase() === patientId.toUpperCase(),
+  );
+}
+
+export function updateRecord(
+  patientId: string,
+  patch: Partial<PatientRecord>,
+): AppState {
   const state = getState();
-  return setState({ patientInbox: [msg, ...state.patientInbox] });
+  return setState({
+    records: state.records.map((r) =>
+      r.id.toUpperCase() === patientId.toUpperCase() ? { ...r, ...patch } : r,
+    ),
+  });
+}
+
+export function addPatientMessage(
+  patientId: string,
+  msg: PatientMessage,
+): AppState {
+  const record = getRecord(patientId);
+  if (!record) return getState();
+  return updateRecord(patientId, { inbox: [msg, ...record.inbox] });
 }

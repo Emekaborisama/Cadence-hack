@@ -4,9 +4,11 @@ import type { CheckInResponse } from '@cadence/shared';
 import { logGlucose } from '../api.js';
 
 export default function GlucoseSheet({
+  patientId,
   onClose,
   onLogged,
 }: {
+  patientId: string;
   onClose: () => void;
   onLogged: (response: CheckInResponse) => void;
 }) {
@@ -17,8 +19,9 @@ export default function GlucoseSheet({
   async function submit() {
     setSubmitting(true);
     try {
-      const state = await logGlucose(Number(value), context);
-      if (state.latestResponse) onLogged(state.latestResponse);
+      const state = await logGlucose(patientId, Number(value), context);
+      const record = state.records.find((r) => r.id === patientId);
+      if (record?.latestResponse) onLogged(record.latestResponse);
     } finally {
       setSubmitting(false);
     }

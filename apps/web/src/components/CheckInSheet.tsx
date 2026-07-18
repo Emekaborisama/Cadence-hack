@@ -39,9 +39,11 @@ function Face({ level, active }: { level: CheckInSeverity; active: boolean }) {
 }
 
 export default function CheckInSheet({
+  patientId,
   onClose,
   onSubmitted,
 }: {
+  patientId: string;
   onClose: () => void;
   onSubmitted: (response: CheckInResponse) => void;
 }) {
@@ -59,8 +61,9 @@ export default function CheckInSheet({
       loggedAt: new Date().toISOString(),
     };
     try {
-      const state = await submitCheckIn(checkIn);
-      if (state.latestResponse) onSubmitted(state.latestResponse);
+      const state = await submitCheckIn(patientId, checkIn);
+      const record = state.records.find((r) => r.id === patientId);
+      if (record?.latestResponse) onSubmitted(record.latestResponse);
     } finally {
       setSubmitting(false);
     }
