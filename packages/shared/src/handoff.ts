@@ -137,11 +137,25 @@ export interface InboxItem {
 // (like a booking reference) the clinician hands to the patient; the patient
 // enters it to access their record. Production path: NHS login — identity
 // always originates on the care-provider side, never self-asserted.
+// One clinician-side audit event — who did what, to which record, when.
+export interface AuditEntry {
+  id: string;
+  at: string; // ISO timestamp
+  actor: 'clinician' | 'patient' | 'system';
+  event: string; // e.g. "record.created", "plan.sent", "checkin.flagged"
+  patientId?: string;
+  patientName?: string;
+  detail?: string;
+  // Structured diff lines for plan updates: "+ added", "− removed", "~ changed: a → b".
+  changes?: string[];
+}
+
 export interface PatientRecord {
   id: string; // short clinician-issued code, e.g. "CAD-7K2F"
   name: string;
   details?: string; // condition / context the clinician entered
   createdAt: string;
+  transcript?: string; // source consult transcript the plan was extracted from
   profile: PatientProfile | null; // set when the patient onboards (consent)
   planSent: boolean;
   draftPlan: HandoffPlan | null; // AI draft under clinician review — never patient-visible

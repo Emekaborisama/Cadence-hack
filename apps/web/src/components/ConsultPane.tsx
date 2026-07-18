@@ -9,6 +9,7 @@ export default function ConsultPane({
   transcript,
   onTranscriptChange,
   onUseSample,
+  sampleLabel = 'Use the sample consult',
   onExtract,
   extracting,
   error,
@@ -17,6 +18,7 @@ export default function ConsultPane({
   transcript: string;
   onTranscriptChange: (v: string) => void;
   onUseSample: () => void;
+  sampleLabel?: string;
   onExtract: () => void;
   extracting: boolean;
   error: string | null;
@@ -67,7 +69,7 @@ export default function ConsultPane({
               onClick={onUseSample}
               className="rounded-lg px-2 py-1 text-[13px] font-medium text-muted underline-offset-2 hover:text-ink hover:underline"
             >
-              Use the sample consult (Meera, diabetes review)
+              {sampleLabel}
             </button>
             <Button
               onPress={onExtract}

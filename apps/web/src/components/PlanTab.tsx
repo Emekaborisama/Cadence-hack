@@ -1,6 +1,7 @@
 import type { Explainer, HandoffPlan, LifestyleAction, Medication } from '@cadence/shared';
 import TitrationTimeline from './TitrationTimeline.js';
 import SimplifyCard from './SimplifyCard.js';
+import { downloadScheduleIcs } from '../lib/calendar.js';
 import type { ReactNode } from 'react';
 
 const delay = (i: number) => ({ animationDelay: `${i * 70}ms` });
@@ -167,7 +168,10 @@ export default function PlanTab({
             <div key={a.id} className="mono-card rounded-3xl p-4">
               <div className="text-[15px] font-semibold text-ink2">{a.title}</div>
               <div className="mt-0.5 text-[13px] leading-snug text-slate">{a.when}</div>
-              <button className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-mint-wash px-3.5 py-1.5 text-[13px] font-semibold text-mint-strong">
+              <button
+                onClick={() => downloadScheduleIcs(plan.patientName)}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-mint-wash px-3.5 py-1.5 text-[13px] font-semibold text-mint-strong"
+              >
                 <span aria-hidden>＋</span> Add to calendar
               </button>
             </div>

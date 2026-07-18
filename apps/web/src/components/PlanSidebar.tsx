@@ -1,5 +1,13 @@
 import { Button } from '@heroui/react';
-import type { PlanPatch } from '@cadence/shared';
+import type {
+  Appointment,
+  ApprovedProtocol,
+  LifestyleAction,
+  Medication,
+  PlanPatch,
+  RedFlag,
+  TitrationStep,
+} from '@cadence/shared';
 import TitrationTimeline from './TitrationTimeline.js';
 import type { ReactNode } from 'react';
 
@@ -14,9 +22,13 @@ const STATUS_STYLE: Record<string, string> = {
   new: 'bg-mint-wash text-mint-strong',
 };
 
-// The structured plan that assembles itself in the clinician's sidebar during
-// the stream. The clinician can edit doses, sees the safety protocols that
-// will be attached, and approves before anything reaches the patient.
+const inputCls =
+  'w-full rounded-lg border border-mint/40 bg-mint-wash/30 px-2.5 py-1.5 text-[13px] text-ink outline-none focus-visible:border-mint';
+const labelCls = 'mt-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted';
+
+// The structured plan the clinician reviews and OWNS. In edit mode every
+// section is authorable — edit, add, remove — because the whole safety model
+// rests on this being the clinician's plan, not the AI's.
 export default function PlanSidebar({
   plan,
   lastEventLabel,
@@ -26,8 +38,7 @@ export default function PlanSidebar({
   canSend,
   editing,
   onToggleEdit,
-  doseEdits,
-  onDoseChange,
+  onPlanChange,
 }: {
   plan: PlanPatch;
   lastEventLabel: string | null;
@@ -37,8 +48,7 @@ export default function PlanSidebar({
   canSend: boolean;
   editing: boolean;
   onToggleEdit: () => void;
-  doseEdits: Record<string, string>;
-  onDoseChange: (id: string, value: string) => void;
+  onPlanChange: (next: PlanPatch) => void;
 }) {
   const meds = plan.medications ?? [];
   const titration = plan.titrationSteps ?? [];
@@ -48,20 +58,38 @@ export default function PlanSidebar({
   const protocols = plan.protocols ?? [];
   const isEmpty = meds.length + lifestyle.length + redFlags.length === 0;
 
-  const doseValue = (id: string, fallback: string) =>
-    doseEdits[id]?.trim() ? doseEdits[id] : fallback;
+  const patch = (p: Partial<PlanPatch>) => onPlanChange({ ...plan, ...p });
+  const editList =
+    <T extends { id: string }>(key: keyof PlanPatch, list: T[]) =>
+    (id: string, item: Partial<T>) =>
+      patch({ [key]: list.map((x) => (x.id === id ? { ...x, ...item } : x)) } as Partial<PlanPatch>);
+  const removeFrom =
+    <T extends { id: string }>(key: keyof PlanPatch, list: T[]) =>
+    (id: string) =>
+      patch({ [key]: list.filter((x) => x.id !== id) } as Partial<PlanPatch>);
+  const addTo =
+    <T,>(key: keyof PlanPatch, list: T[]) =>
+    (item: T) =>
+      patch({ [key]: [...list, item] } as Partial<PlanPatch>);
+
+  const editMed = editList<Medication>('medications', meds);
+  const editTit = editList<TitrationStep>('titrationSteps', titration);
+  const editLife = editList<LifestyleAction>('lifestyleActions', lifestyle);
+  const editFlag = editList<RedFlag>('redFlags', redFlags);
+  const editAppt = editList<Appointment>('appointments', appointments);
+  const editProto = editList<ApprovedProtocol>('protocols', protocols);
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-paper">
       <div className="flex items-start justify-between border-b border-line bg-white px-5 py-3.5">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mint-strong">
-            AI extraction
+            {editing ? 'Editing — you own this plan' : 'AI extraction'}
           </div>
           <div className="font-serif text-lg font-medium text-ink">Care plan</div>
           {plan.condition ? <div className="text-[13px] text-muted">{plan.condition}</div> : null}
         </div>
-        {meds.length && !sent ? (
+        {meds.length ? (
           <Button
             onPress={onToggleEdit}
             className={`rounded-lg border px-3 py-4 text-[13px] font-semibold ${
@@ -92,123 +120,284 @@ export default function PlanSidebar({
           </div>
         ) : null}
 
-        {meds.length ? (
-          <Group label="Medications">
+        {meds.length || editing ? (
+          <Group
+            label="Medications"
+            editing={editing}
+            onAdd={() =>
+              addTo<Medication>('medications', meds)({
+                id: `med-${Date.now()}`,
+                name: 'New medication',
+                dose: '',
+                schedule: '',
+                why: '',
+                status: 'new',
+              })
+            }
+          >
             <div className="space-y-2.5">
               {meds.map((m) => (
                 <div key={m.id} className="rounded-xl border border-line bg-white p-3.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-serif text-[16px] font-medium text-ink">{m.name}</span>
+                    {editing ? (
+                      <input
+                        value={m.name}
+                        onChange={(e) => editMed(m.id, { name: e.target.value })}
+                        className={`${inputCls} font-serif text-[15px]`}
+                      />
+                    ) : (
+                      <span className="font-serif text-[16px] font-medium text-ink">{m.name}</span>
+                    )}
                     <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[m.status]}`}
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[m.status] ?? STATUS_STYLE.continued}`}
                     >
-                      {STATUS_LABEL[m.status]}
+                      {STATUS_LABEL[m.status] ?? 'Keep'}
                     </span>
+                    {editing ? <Remove onPress={() => removeFrom('medications', meds)(m.id)} /> : null}
                   </div>
                   {editing ? (
-                    <input
-                      value={doseEdits[m.id] ?? m.dose}
-                      onChange={(e) => onDoseChange(m.id, e.target.value)}
-                      className="mt-2 w-full rounded-lg border border-mint/40 bg-mint-wash/40 px-2.5 py-1.5 text-[14px] font-medium text-ink outline-none focus-visible:border-mint focus-visible:ring-2 focus-visible:ring-mint/20"
-                    />
+                    <>
+                      <label className={labelCls}>Dose</label>
+                      <input value={m.dose} onChange={(e) => editMed(m.id, { dose: e.target.value })} className={inputCls} />
+                      <label className={labelCls}>Schedule</label>
+                      <input value={m.schedule} onChange={(e) => editMed(m.id, { schedule: e.target.value })} className={inputCls} />
+                      <label className={labelCls}>Why (in your words, shown to the patient)</label>
+                      <textarea value={m.why} onChange={(e) => editMed(m.id, { why: e.target.value })} rows={2} className={inputCls} />
+                    </>
                   ) : (
-                    <div className="mt-1.5 text-[14px] font-medium text-ink">
-                      {doseValue(m.id, m.dose)}
-                      {doseEdits[m.id]?.trim() && doseEdits[m.id] !== m.dose ? (
-                        <span className="ml-2 rounded bg-ochre-wash px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ochre">
-                          edited
-                        </span>
-                      ) : null}
-                    </div>
+                    <>
+                      <div className="mt-1.5 text-[14px] font-medium text-ink">{m.dose}</div>
+                      <div className="mt-0.5 text-[12px] text-muted">{m.schedule}</div>
+                      <p className="mt-1.5 line-clamp-2 text-[12px] italic leading-snug text-mint-strong">
+                        &ldquo;{m.why}&rdquo;
+                      </p>
+                    </>
                   )}
-                  <div className="mt-0.5 text-[12px] text-muted">{m.schedule}</div>
-                  <p className="mt-1.5 line-clamp-2 text-[12px] italic leading-snug text-mint-strong">
-                    &ldquo;{m.why}&rdquo;
-                  </p>
                 </div>
               ))}
             </div>
           </Group>
         ) : null}
 
-        {titration.length ? (
-          <Group label="Titration schedule">
+        {titration.length || editing ? (
+          <Group
+            label="Titration schedule"
+            editing={editing}
+            onAdd={() =>
+              addTo<TitrationStep>('titrationSteps', titration)({
+                id: `tit-${Date.now()}`,
+                label: 'Weeks …',
+                dose: '',
+              })
+            }
+          >
             <div className="rounded-xl border border-line bg-white p-4">
-              <TitrationTimeline steps={titration} />
+              {editing ? (
+                <div className="space-y-3">
+                  {titration.map((t) => (
+                    <div key={t.id} className="rounded-lg border border-hair p-2.5">
+                      <div className="flex items-center gap-2">
+                        <input value={t.label} onChange={(e) => editTit(t.id, { label: e.target.value })} className={inputCls} placeholder="Weeks 1–4" />
+                        <Remove onPress={() => removeFrom('titrationSteps', titration)(t.id)} />
+                      </div>
+                      <input value={t.dose} onChange={(e) => editTit(t.id, { dose: e.target.value })} className={`${inputCls} mt-1.5`} placeholder="0.25 mg once a week" />
+                      <input value={t.note ?? ''} onChange={(e) => editTit(t.id, { note: e.target.value })} className={`${inputCls} mt-1.5`} placeholder="Note (optional)" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <TitrationTimeline steps={titration} />
+              )}
             </div>
           </Group>
         ) : null}
 
-        {lifestyle.length ? (
-          <Group label="Lifestyle & monitoring">
+        {lifestyle.length || editing ? (
+          <Group
+            label="Lifestyle & monitoring"
+            editing={editing}
+            onAdd={() =>
+              addTo<LifestyleAction>('lifestyleActions', lifestyle)({
+                id: `life-${Date.now()}`,
+                title: '',
+                detail: '',
+                category: 'other',
+              })
+            }
+          >
             <ul className="space-y-2">
               {lifestyle.map((a) => (
                 <li key={a.id} className="rounded-xl border border-line bg-white px-3.5 py-2.5">
-                  <div className="text-[14px] font-medium text-ink">{a.title}</div>
-                  <div className="text-[13px] text-muted">{a.detail}</div>
+                  {editing ? (
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <input value={a.title} onChange={(e) => editLife(a.id, { title: e.target.value })} className={inputCls} placeholder="Action" />
+                        <Remove onPress={() => removeFrom('lifestyleActions', lifestyle)(a.id)} />
+                      </div>
+                      <input value={a.detail} onChange={(e) => editLife(a.id, { detail: e.target.value })} className={`${inputCls} mt-1.5`} placeholder="Detail the patient sees" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-[14px] font-medium text-ink">{a.title}</div>
+                      <div className="text-[13px] text-muted">{a.detail}</div>
+                    </>
+                  )}
                 </li>
               ))}
               {plan.glucoseTarget ? (
                 <li className="rounded-xl border border-line bg-white px-3.5 py-2.5">
                   <div className="text-[14px] font-medium text-ink">Home glucose target</div>
-                  <div className="text-[13px] text-muted">
-                    {plan.glucoseTarget.low}–{plan.glucoseTarget.high} mmol/L, fasting. Readings
-                    above route to you.
-                  </div>
+                  {editing ? (
+                    <div className="mt-1 flex items-center gap-2 text-[13px] text-muted">
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={plan.glucoseTarget.low}
+                        onChange={(e) =>
+                          patch({ glucoseTarget: { ...plan.glucoseTarget!, low: Number(e.target.value) } })
+                        }
+                        className={`${inputCls} w-20`}
+                      />
+                      –
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={plan.glucoseTarget.high}
+                        onChange={(e) =>
+                          patch({ glucoseTarget: { ...plan.glucoseTarget!, high: Number(e.target.value) } })
+                        }
+                        className={`${inputCls} w-20`}
+                      />
+                      mmol/L fasting
+                    </div>
+                  ) : (
+                    <div className="text-[13px] text-muted">
+                      {plan.glucoseTarget.low}–{plan.glucoseTarget.high} mmol/L, fasting. Readings
+                      above route to you.
+                    </div>
+                  )}
                 </li>
               ) : null}
             </ul>
           </Group>
         ) : null}
 
-        {redFlags.length ? (
-          <Group label="What to watch for">
+        {redFlags.length || editing ? (
+          <Group
+            label="What to watch for"
+            editing={editing}
+            onAdd={() =>
+              addTo<RedFlag>('redFlags', redFlags)({ id: `flag-${Date.now()}`, symptom: '', action: '' })
+            }
+          >
             <ul className="space-y-2">
               {redFlags.map((f) => (
-                <li
-                  key={f.id}
-                  className="rounded-xl border border-clay/20 bg-clay-wash px-3.5 py-2.5"
-                >
-                  <div className="text-[14px] font-semibold text-clay">{f.symptom}</div>
-                  <div className="text-[13px] text-ink/70">{f.action}</div>
+                <li key={f.id} className="rounded-xl border border-clay/20 bg-clay-wash px-3.5 py-2.5">
+                  {editing ? (
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <input value={f.symptom} onChange={(e) => editFlag(f.id, { symptom: e.target.value })} className={inputCls} placeholder="Symptom to watch for" />
+                        <Remove onPress={() => removeFrom('redFlags', redFlags)(f.id)} />
+                      </div>
+                      <input value={f.action} onChange={(e) => editFlag(f.id, { action: e.target.value })} className={`${inputCls} mt-1.5`} placeholder="What the patient should do" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-[14px] font-semibold text-clay">{f.symptom}</div>
+                      <div className="text-[13px] text-ink/70">{f.action}</div>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
           </Group>
         ) : null}
 
-        {protocols.length ? (
-          <Group label="Safety protocols attached">
+        {protocols.length || editing ? (
+          <Group
+            label="Safety protocols attached"
+            editing={editing}
+            onAdd={() =>
+              addTo<ApprovedProtocol>('protocols', protocols)({
+                id: `proto-${Date.now()}`,
+                trigger: '',
+                label: '',
+                steps: [''],
+                escalateWhen: '',
+              })
+            }
+          >
             <p className="-mt-1 mb-2 text-[12px] leading-snug text-muted">
               Your approved responses. The companion hands over these exact steps when the
               patient reports a symptom, and escalates to you at your threshold.
             </p>
             <ul className="space-y-2">
               {protocols.map((p) => (
-                <li
-                  key={p.id}
-                  className="rounded-xl border border-mint/25 bg-mint-wash/60 px-3.5 py-2.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[14px] font-semibold text-mint-strong">{p.label}</span>
-                    <span className="text-[11px] font-medium text-mint-strong">
-                      {p.steps.length} steps
-                    </span>
-                  </div>
-                  <div className="text-[12px] text-ink/60">Escalate when: {p.escalateWhen}</div>
+                <li key={p.id} className="rounded-xl border border-mint/25 bg-mint-wash/60 px-3.5 py-2.5">
+                  {editing ? (
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <input value={p.label} onChange={(e) => editProto(p.id, { label: e.target.value })} className={inputCls} placeholder="Protocol name, e.g. Nausea (early weeks)" />
+                        <Remove onPress={() => removeFrom('protocols', protocols)(p.id)} />
+                      </div>
+                      <label className={labelCls}>Matches symptom keyword</label>
+                      <input value={p.trigger} onChange={(e) => editProto(p.id, { trigger: e.target.value.toLowerCase() })} className={inputCls} placeholder="nausea" />
+                      <label className={labelCls}>Steps (one per line)</label>
+                      <textarea
+                        value={p.steps.join('\n')}
+                        onChange={(e) => editProto(p.id, { steps: e.target.value.split('\n') })}
+                        rows={3}
+                        className={inputCls}
+                      />
+                      <label className={labelCls}>Escalate when</label>
+                      <input value={p.escalateWhen} onChange={(e) => editProto(p.id, { escalateWhen: e.target.value })} className={inputCls} placeholder="Moderate or worse" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[14px] font-semibold text-mint-strong">{p.label}</span>
+                        <span className="text-[11px] font-medium text-mint-strong">
+                          {p.steps.length} steps
+                        </span>
+                      </div>
+                      <div className="text-[12px] text-ink/60">Escalate when: {p.escalateWhen}</div>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
           </Group>
         ) : null}
 
-        {appointments.length ? (
-          <Group label="Follow-up">
+        {appointments.length || editing ? (
+          <Group
+            label="Follow-up"
+            editing={editing}
+            onAdd={() =>
+              addTo<Appointment>('appointments', appointments)({
+                id: `appt-${Date.now()}`,
+                title: 'Follow-up review',
+                when: '',
+              })
+            }
+          >
             <ul className="space-y-2">
               {appointments.map((a) => (
                 <li key={a.id} className="rounded-xl border border-line bg-white px-3.5 py-2.5">
-                  <div className="text-[14px] font-medium text-ink">{a.title}</div>
-                  <div className="text-[13px] text-muted">{a.when}</div>
+                  {editing ? (
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <input value={a.title} onChange={(e) => editAppt(a.id, { title: e.target.value })} className={inputCls} />
+                        <Remove onPress={() => removeFrom('appointments', appointments)(a.id)} />
+                      </div>
+                      <input value={a.when} onChange={(e) => editAppt(a.id, { when: e.target.value })} className={`${inputCls} mt-1.5`} placeholder="When" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-[14px] font-medium text-ink">{a.title}</div>
+                      <div className="text-[13px] text-muted">{a.when}</div>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
@@ -225,31 +414,69 @@ export default function PlanSidebar({
         ) : null}
         <Button
           onPress={onSend}
-          isDisabled={!canSend || sending || sent}
+          isDisabled={!canSend || sending}
           className={`w-full rounded-xl px-4 py-6 text-[15px] font-semibold ${
-            sent
+            sent && !canSend
               ? 'bg-mint-wash text-mint-strong'
-              : 'bg-mint text-ink2 data-[hovered=true]:opacity-90 data-[disabled=true]:bg-line data-[disabled=true]:text-muted'
+              : 'bg-mint text-ink2 data-[hovered=true]:opacity-90 data-[disabled=true]:bg-mint-wash data-[disabled=true]:text-mint-strong'
           }`}
         >
-          {sent
-            ? `✓ Approved & sent to ${plan.patientName ?? 'patient'}`
-            : sending
-              ? 'Sending…'
+          {sending
+            ? 'Sending…'
+            : sent
+              ? canSend
+                ? `Send update to ${plan.patientName ?? 'patient'}`
+                : `✓ Approved & sent to ${plan.patientName ?? 'patient'}`
               : 'Approve & send to patient'}
         </Button>
         <p className="mt-2.5 text-center text-[12px] leading-snug text-muted">
-          Nothing reaches the patient until you approve it here.
+          {sent
+            ? 'Edit anything and send — the patient is notified of the update.'
+            : 'Nothing reaches the patient until you approve it here.'}
         </p>
       </div>
     </div>
   );
 }
 
-function Group({ label, children }: { label: string; children: ReactNode }) {
+function Remove({ onPress }: { onPress: () => void }) {
+  return (
+    <button
+      onClick={onPress}
+      aria-label="Remove"
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line bg-white text-[13px] font-bold text-clay hover:bg-clay-wash"
+    >
+      ×
+    </button>
+  );
+}
+
+function Group({
+  label,
+  editing,
+  onAdd,
+  children,
+}: {
+  label: string;
+  editing?: boolean;
+  onAdd?: () => void;
+  children: ReactNode;
+}) {
   return (
     <section className="space-y-2">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+          {label}
+        </h3>
+        {editing && onAdd ? (
+          <button
+            onClick={onAdd}
+            className="rounded-md bg-mint-wash px-2 py-0.5 text-[11px] font-semibold text-mint-strong"
+          >
+            ＋ Add
+          </button>
+        ) : null}
+      </div>
       {children}
     </section>
   );

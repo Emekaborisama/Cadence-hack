@@ -284,6 +284,63 @@ assert(s.inbox.length === 2 && s.inbox[0].kind === 'glucose' && s.inbox[0].patie
 s = await api({ action: 'markRead', id: s.inbox[0].id });
 assert(s.inbox[0].read === true, 'markRead → inbox item read');
 
+// ── Transcript persisted with the record (refresh-proof source) ───────────
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.transcript === TRANSCRIPT, 'source transcript stored on the record');
+
+// ── Post-send plan UPDATE: edit → re-send, patient notified, rhythm kept ──
+const inboxBefore = rec.inbox.length;
+const streakKeep = rec.streakDays;
+s = await api({
+  action: 'sendPlan',
+  patientId: meera.id,
+  plan: { medications: [{ id: 'med-metformin', name: 'Metformin', dose: '500 mg, twice a day', schedule: 'With meals', why: 'dose reduced', status: 'adjusted' }] },
+});
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.plan.medications[0].dose === '500 mg, twice a day',
+  'post-send edit → patient receives the updated dose');
+assert(rec.inbox.length === inboxBefore + 1 && rec.inbox[0].title.includes('updated'),
+  'patient notified of the plan update');
+assert(rec.streakDays === streakKeep && rec.glucoseReadings.length > 0,
+  "an update never resets the patient's streak or readings");
+
+// ── Clinician AUTHORS new sections: red flag + protocol via edit ───────────
+s = await api({
+  action: 'sendPlan',
+  patientId: meera.id,
+  plan: {
+    redFlags: [...rec.plan.redFlags, { id: 'flag-custom', symptom: 'Chest pain', action: 'Call 999 immediately' }],
+    protocols: [...rec.plan.protocols, { id: 'proto-custom', trigger: 'dizzy', label: 'Dizziness', steps: ['Sit down', 'Sip water slowly'], escalateWhen: 'If it persists beyond an hour' }],
+  },
+});
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.plan.redFlags.some((f) => f.symptom === 'Chest pain'),
+  'clinician-added red flag reaches the patient plan');
+assert(rec.plan.protocols.length === 3,
+  'clinician-authored protocol attached alongside the originals');
+assert(s.auditLog[0].changes?.some((c) => c.includes('+ red flag: Chest pain')) &&
+  s.auditLog[0].changes?.some((c) => c.includes('+ protocol: Dizziness')),
+  'audit diff shows the additions (+ lines)');
+
+// The new protocol is live: a matching check-in serves ITS steps.
+s = await api({
+  action: 'checkIn',
+  patientId: meera.id,
+  checkIn: { symptom: 'Dizzy spells', severity: 'mild', loggedAt: new Date().toISOString() },
+});
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.latestResponse.protocolSteps.includes('Sit down'),
+  "patient check-in matches the clinician's new protocol");
+
+// ── Audit log: the trail exists and reads correctly ────────────────────────
+assert(Array.isArray(s.auditLog) && s.auditLog.length > 0, 'audit log populated');
+assert(s.auditLog[0].event === 'plan.updated' && s.auditLog[0].actor === 'clinician',
+  'newest audit entry is the plan update (clinician)');
+assert(s.auditLog.some((e) => e.event === 'record.created'),
+  'audit trail includes record creation');
+assert(s.auditLog.some((e) => e.event === 'checkin.flagged' && e.actor === 'patient'),
+  'audit trail includes patient-side flagged check-in');
+
 // ── Record CRUD: update + delete ───────────────────────────────────────────
 s = await api({ action: 'updatePatient', patientId: meera.id, name: 'Meera K', details: 'T2D, semaglutide titration' });
 rec = s.records.find((r) => r.id === meera.id);
