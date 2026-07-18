@@ -45,8 +45,6 @@ const TABS: { id: ClinicTab; label: string }[] = [
   { id: 'audit', label: 'Audit log' },
 ];
 
-const SELECTED_KEY = 'cadence.clinic.selectedId';
-
 export default function ClinicPage() {
   const { state, setState } = usePollState();
   const [tab, setTab] = useState<ClinicTab>(
