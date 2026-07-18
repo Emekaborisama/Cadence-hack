@@ -146,6 +146,8 @@ export interface AuditEntry {
   patientId?: string;
   patientName?: string;
   detail?: string;
+  // Structured diff lines for plan updates: "+ added", "− removed", "~ changed: a → b".
+  changes?: string[];
 }
 
 export interface PatientRecord {

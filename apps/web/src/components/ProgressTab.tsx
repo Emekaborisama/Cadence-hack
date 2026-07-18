@@ -106,6 +106,48 @@ export default function ProgressTab({
         Log a reading
       </Button>
 
+      {/* the rest of the T2D monitoring picture — roadmap, visible */}
+      <div className="mt-6">
+        <div className="mb-2.5 flex items-center justify-between">
+          <h2
+            className="text-[15px] font-semibold text-ink2"
+            style={{ fontFamily: 'var(--font-sora), sans-serif' }}
+          >
+            More tracking
+          </h2>
+          <span className="rounded-full bg-mint-wash px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-mint-strong">
+            Coming soon
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2.5">
+          {[
+            { obj: 'bp-cuff.png', tint: '#f0ecfb', title: 'Blood pressure', note: 'Twice a week, in your plan' },
+            { emoji: '⚖️', tint: '#e6f2fd', title: 'Weight', note: 'Weekly weigh-in' },
+            { obj: 'walking-shoe.png', tint: '#e9f6ea', title: 'Steps & activity', note: 'Auto-synced' },
+            { emoji: '🩸', tint: '#fdeee0', title: 'HbA1c', note: 'Synced from your clinic' },
+          ].map((t) => (
+            <div key={t.title} className="mono-card rounded-3xl p-3 opacity-70">
+              <span
+                className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl"
+                style={{ background: t.tint }}
+              >
+                {t.obj ? (
+                  <img
+                    src={`/objects/${t.obj}`}
+                    alt=""
+                    className="h-[56px] w-[56px] object-contain mix-blend-multiply"
+                  />
+                ) : (
+                  <span className="text-[22px]">{t.emoji}</span>
+                )}
+              </span>
+              <div className="mt-2 text-[13.5px] font-semibold text-ink2">{t.title}</div>
+              <div className="text-[11.5px] leading-snug text-slate">{t.note}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* care-team response after a flagged reading */}
       {glucoseResult ? (
         <div

@@ -62,6 +62,24 @@ export default function AuditPanel({ entries }: { entries: AuditEntry[] }) {
                 {e.detail ? (
                   <div className="mt-0.5 truncate text-[12.5px] text-muted">{e.detail}</div>
                 ) : null}
+                {e.changes?.length ? (
+                  <ul className="mt-1.5 space-y-0.5 rounded-lg bg-paper px-2.5 py-2 font-mono text-[11.5px] leading-relaxed">
+                    {e.changes.map((c, i) => (
+                      <li
+                        key={i}
+                        className={
+                          c.startsWith('+')
+                            ? 'text-mint-strong'
+                            : c.startsWith('−')
+                              ? 'text-clay'
+                              : 'text-ochre'
+                        }
+                      >
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
               <span className="shrink-0 text-[11.5px] text-muted/80">
                 {new Date(e.at).toLocaleTimeString()}

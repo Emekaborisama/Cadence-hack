@@ -304,6 +304,34 @@ assert(rec.inbox.length === inboxBefore + 1 && rec.inbox[0].title.includes('upda
 assert(rec.streakDays === streakKeep && rec.glucoseReadings.length > 0,
   "an update never resets the patient's streak or readings");
 
+// ── Clinician AUTHORS new sections: red flag + protocol via edit ───────────
+s = await api({
+  action: 'sendPlan',
+  patientId: meera.id,
+  plan: {
+    redFlags: [...rec.plan.redFlags, { id: 'flag-custom', symptom: 'Chest pain', action: 'Call 999 immediately' }],
+    protocols: [...rec.plan.protocols, { id: 'proto-custom', trigger: 'dizzy', label: 'Dizziness', steps: ['Sit down', 'Sip water slowly'], escalateWhen: 'If it persists beyond an hour' }],
+  },
+});
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.plan.redFlags.some((f) => f.symptom === 'Chest pain'),
+  'clinician-added red flag reaches the patient plan');
+assert(rec.plan.protocols.length === 3,
+  'clinician-authored protocol attached alongside the originals');
+assert(s.auditLog[0].changes?.some((c) => c.includes('+ red flag: Chest pain')) &&
+  s.auditLog[0].changes?.some((c) => c.includes('+ protocol: Dizziness')),
+  'audit diff shows the additions (+ lines)');
+
+// The new protocol is live: a matching check-in serves ITS steps.
+s = await api({
+  action: 'checkIn',
+  patientId: meera.id,
+  checkIn: { symptom: 'Dizzy spells', severity: 'mild', loggedAt: new Date().toISOString() },
+});
+rec = s.records.find((r) => r.id === meera.id);
+assert(rec.latestResponse.protocolSteps.includes('Sit down'),
+  "patient check-in matches the clinician's new protocol");
+
 // ── Audit log: the trail exists and reads correctly ────────────────────────
 assert(Array.isArray(s.auditLog) && s.auditLog.length > 0, 'audit log populated');
 assert(s.auditLog[0].event === 'plan.updated' && s.auditLog[0].actor === 'clinician',

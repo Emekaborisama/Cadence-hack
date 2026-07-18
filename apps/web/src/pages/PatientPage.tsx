@@ -20,7 +20,7 @@ const STORAGE_KEY = 'cadence.patientId';
 // streak, readings, inbox) lives server-side against that code, so nothing
 // resets on refresh or on a different device.
 export default function PatientPage() {
-  const { state, setState } = usePollState();
+  const { state, setState, error } = usePollState();
   const [patientId, setPatientId] = useState<string | null>(
     () => localStorage.getItem(STORAGE_KEY),
   );
@@ -67,8 +67,14 @@ export default function PatientPage() {
     <div className="mono-canvas min-h-dvh">
       <main className="relative mx-auto flex h-dvh w-full max-w-[480px] flex-col overflow-hidden">
         {!state ? (
-          <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
             <Spinner label="Loading Cadence…" color="warning" />
+            {error ? (
+              <p className="max-w-[300px] text-[13px] leading-snug text-blush">
+                Can&rsquo;t reach the care service. If this keeps happening, this frontend may be
+                deployed without its API — use the full Cadence URL from your care team.
+              </p>
+            ) : null}
           </div>
         ) : !record ? (
           <SignIn

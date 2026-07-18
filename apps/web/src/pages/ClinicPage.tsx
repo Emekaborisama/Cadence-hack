@@ -57,7 +57,9 @@ export default function ClinicPage() {
   const [extractError, setExtractError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [doseEdits, setDoseEdits] = useState<Record<string, string>>({});
+  // Full clinician draft: entering edit mode clones the plan; every section is
+  // then authorable. Cleared on send / patient switch / reset.
+  const [editedPlan, setEditedPlan] = useState<PlanPatch | null>(null);
 
   const records = state?.records ?? [];
   const inbox = state?.inbox ?? [];
@@ -67,12 +69,13 @@ export default function ClinicPage() {
 
   const sent = Boolean(selected?.planSent);
   const draft = selected?.draftPlan ?? null;
-  const hasEdits = Object.values(doseEdits).some((v) => v?.trim());
+  const hasEdits = editedPlan !== null;
 
-  const plan: PlanPatch = useMemo(() => {
+  const basePlan: PlanPatch = useMemo(() => {
     if (selected?.planSent && selected.plan && !draft) return selected.plan;
     return draft ?? {};
   }, [selected, draft]);
+  const plan = editedPlan ?? basePlan;
 
   const reviewing = Boolean(draft) && !sent;
   // The consult pane accepts input pre-extract, and again when the clinician
@@ -122,7 +125,7 @@ export default function ClinicPage() {
         const id = next.records[0]?.id ?? null;
         setSelectedId(id);
         if (id) localStorage.setItem(SELECTED_KEY, id);
-        setDoseEdits({});
+        setEditedPlan(null);
       }
       setNewName('');
       setNewDetails('');
@@ -163,20 +166,22 @@ export default function ClinicPage() {
   const handleSend = useCallback(async () => {
     if (!selected) return;
     setSending(true);
-    const editedPlan: PlanPatch = {
-      ...plan,
-      medications: (plan.medications ?? []).map((m) =>
-        doseEdits[m.id] != null && doseEdits[m.id].trim() ? { ...m, dose: doseEdits[m.id] } : m,
-      ),
-    };
     try {
-      setState(await sendPlanAction(selected.id, editedPlan));
+      setState(await sendPlanAction(selected.id, plan));
       setEditing(false);
-      setDoseEdits({});
+      setEditedPlan(null);
     } finally {
       setSending(false);
     }
-  }, [selected, plan, doseEdits, setState]);
+  }, [selected, plan, setState]);
+
+  const toggleEdit = () => {
+    if (!editing && !editedPlan) {
+      // Entering edit mode: clone so the clinician works on their own copy.
+      setEditedPlan(structuredClone(basePlan));
+    }
+    setEditing((v) => !v);
+  };
 
   const markRead = useCallback(
     async (id: string) => setState(await markReadAction(id)),
@@ -192,7 +197,7 @@ export default function ClinicPage() {
     setExtractError(null);
     setEditing(false);
     setEditingPatient(false);
-    setDoseEdits({});
+    setEditedPlan(null);
     setState(next);
   }, [setState]);
 
@@ -202,14 +207,14 @@ export default function ClinicPage() {
     setExtractError(null);
     setEditing(false);
     setEditingPatient(false);
-    setDoseEdits({});
+    setEditedPlan(null);
   };
 
   const canSend =
     Boolean(plan.medications?.length) &&
     !extracting &&
     Boolean(selected) &&
-    (!sent || Boolean(draft) || editing || hasEdits);
+    (!sent || Boolean(draft) || hasEdits);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-[1280px] flex-1 flex-col gap-4 p-5">
@@ -476,9 +481,8 @@ export default function ClinicPage() {
                 sending={sending}
                 canSend={canSend}
                 editing={editing}
-                onToggleEdit={() => setEditing((v) => !v)}
-                doseEdits={doseEdits}
-                onDoseChange={(id, val) => setDoseEdits((prev) => ({ ...prev, [id]: val }))}
+                onToggleEdit={toggleEdit}
+                onPlanChange={setEditedPlan}
               />
             </div>
           </div>

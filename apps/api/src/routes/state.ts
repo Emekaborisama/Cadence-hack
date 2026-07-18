@@ -57,6 +57,55 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Human-readable diff between two plans, for the audit trail. Line prefixes:
+// "+" added, "−" removed, "~" changed.
+function diffPlans(prev: HandoffPlan, next: HandoffPlan): string[] {
+  const lines: string[] = [];
+  const byId = <T extends { id: string }>(arr: T[]) => new Map(arr.map((x) => [x.id, x]));
+
+  const prevMeds = byId(prev.medications);
+  const nextMeds = byId(next.medications);
+  for (const [id, m] of nextMeds) {
+    const old = prevMeds.get(id);
+    if (!old) lines.push(`+ medication: ${m.name} ${m.dose}`);
+    else if (old.dose !== m.dose) lines.push(`~ ${m.name} dose: ${old.dose} → ${m.dose}`);
+    else if (old.name !== m.name) lines.push(`~ medication renamed: ${old.name} → ${m.name}`);
+  }
+  for (const [id, m] of prevMeds) if (!nextMeds.has(id)) lines.push(`− medication: ${m.name}`);
+
+  const listDiff = <T extends { id: string }>(
+    label: string,
+    prevArr: T[],
+    nextArr: T[],
+    show: (x: T) => string,
+  ) => {
+    const p = byId(prevArr);
+    const n = byId(nextArr);
+    for (const [id, x] of n) {
+      const old = p.get(id);
+      if (!old) lines.push(`+ ${label}: ${show(x)}`);
+      else if (show(old) !== show(x)) lines.push(`~ ${label}: ${show(old)} → ${show(x)}`);
+    }
+    for (const [id, x] of p) if (!n.has(id)) lines.push(`− ${label}: ${show(x)}`);
+  };
+
+  listDiff('titration', prev.titrationSteps, next.titrationSteps, (t) => `${t.label} ${t.dose}`);
+  listDiff('action', prev.lifestyleActions, next.lifestyleActions, (a) => a.title);
+  listDiff('red flag', prev.redFlags, next.redFlags, (f) => f.symptom);
+  listDiff('protocol', prev.protocols, next.protocols, (p) => p.label || p.trigger);
+  listDiff('follow-up', prev.appointments, next.appointments, (a) => `${a.title} (${a.when})`);
+
+  if (
+    prev.glucoseTarget.low !== next.glucoseTarget.low ||
+    prev.glucoseTarget.high !== next.glucoseTarget.high
+  ) {
+    lines.push(
+      `~ glucose target: ${prev.glucoseTarget.low}–${prev.glucoseTarget.high} → ${next.glucoseTarget.low}–${next.glucoseTarget.high} mmol/L`,
+    );
+  }
+  return lines;
+}
+
 // Resolve a record or respond 404. Returns undefined after sending the error.
 function requireRecord(
   res: Response,
@@ -390,9 +439,12 @@ stateRouter.post('/', async (req: Request, res: Response) => {
               ...base,
               ...edited,
               patientName: record.name,
-              // Authored server-side, never overwritten by the edit.
-              protocols: base.protocols,
-              glucoseTarget: base.glucoseTarget,
+              // Clinician-authored: an explicit edit from the clinic surface
+              // may replace protocols/targets (that's who authors them); an
+              // edit that omits them keeps the existing ones — the AI can
+              // never write them either way.
+              protocols: edited.protocols?.length ? edited.protocols : base.protocols,
+              glucoseTarget: edited.glucoseTarget ?? base.glucoseTarget,
             }
           : base;
         updateRecord(record.id, {
@@ -418,10 +470,14 @@ stateRouter.post('/', async (req: Request, res: Response) => {
           body: plan.summary,
           at: new Date().toISOString(),
         });
+        const changes = isUpdate && record.plan ? diffPlans(record.plan, plan) : undefined;
         audit('clinician', isUpdate ? 'plan.updated' : 'plan.sent', {
           patientId: record.id,
           patientName: record.name,
-          detail: plan.medications.map((m) => `${m.name} ${m.dose}`).join(' · '),
+          detail: isUpdate
+            ? `${changes?.length ?? 0} change${changes?.length === 1 ? '' : 's'}`
+            : plan.medications.map((m) => `${m.name} ${m.dose}`).join(' · '),
+          changes,
         });
         return res.json(getState());
       }

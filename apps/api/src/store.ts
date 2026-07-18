@@ -154,7 +154,7 @@ export function addPatientMessage(
 export function audit(
   actor: AuditEntry['actor'],
   event: string,
-  extra?: { patientId?: string; patientName?: string; detail?: string },
+  extra?: Omit<AuditEntry, 'id' | 'at' | 'actor' | 'event'>,
 ): AppState {
   const state = getState();
   const entry: AuditEntry = {
