@@ -2,24 +2,33 @@ import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Input } from '@heroui/react';
 import type { PlanPatch } from '@cadence/shared';
-import { CONSULT_TRANSCRIPT } from '@cadence/shared';
+import { CONSULT_TRANSCRIPT, DAILY_TASK_COUNT } from '@cadence/shared';
 import {
   createPatient as createPatientAction,
+  deletePatient as deletePatientAction,
   extractPlan as extractAction,
   markRead as markReadAction,
   resetDemo,
   sendPlan as sendPlanAction,
+  updatePatient as updatePatientAction,
 } from '../api.js';
 import { usePollState } from '../hooks/usePollState.js';
 import ConsultPane from '../components/ConsultPane.js';
 import PlanSidebar from '../components/PlanSidebar.js';
 import InboxPanel from '../components/InboxPanel.js';
 
+const SELECTED_KEY = 'cadence.clinic.selectedId';
+
 export default function ClinicPage() {
   const { state, setState } = usePollState();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Selection survives a refresh — losing your working patient on F5 reads
+  // as data loss even though the records are server-side.
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => localStorage.getItem(SELECTED_KEY),
+  );
   const [newName, setNewName] = useState('');
   const [newDetails, setNewDetails] = useState('');
+  const [editingPatient, setEditingPatient] = useState(false);
   const [creating, setCreating] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [extracting, setExtracting] = useState(false);
@@ -54,18 +63,44 @@ export default function ClinicPage() {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const next = await createPatientAction(newName.trim(), newDetails.trim() || undefined);
-      setState(next);
-      // Newest record is first — select it so the consult targets it.
-      setSelectedId(next.records[0]?.id ?? null);
+      if (editingPatient && selectedId) {
+        setState(
+          await updatePatientAction(selectedId, {
+            name: newName.trim(),
+            details: newDetails,
+          }),
+        );
+        setEditingPatient(false);
+      } else {
+        const next = await createPatientAction(newName.trim(), newDetails.trim() || undefined);
+        setState(next);
+        // Newest record is first — select it so the consult targets it.
+        const id = next.records[0]?.id ?? null;
+        setSelectedId(id);
+        if (id) localStorage.setItem(SELECTED_KEY, id);
+        setTranscript('');
+        setDoseEdits({});
+      }
       setNewName('');
       setNewDetails('');
-      setTranscript('');
-      setDoseEdits({});
     } finally {
       setCreating(false);
     }
-  }, [newName, newDetails, setState]);
+  }, [newName, newDetails, editingPatient, selectedId, setState]);
+
+  const handleDelete = useCallback(
+    async (id: string, name: string) => {
+      if (!window.confirm(`Delete ${name}'s record (${id})? This removes their plan and flags.`)) {
+        return;
+      }
+      setState(await deletePatientAction(id));
+      if (selectedId === id) {
+        setSelectedId(null);
+        localStorage.removeItem(SELECTED_KEY);
+      }
+    },
+    [selectedId, setState],
+  );
 
   const handleExtract = useCallback(async () => {
     if (!selected) return;
@@ -115,9 +150,11 @@ export default function ClinicPage() {
 
   const selectPatient = (id: string) => {
     setSelectedId(id);
+    localStorage.setItem(SELECTED_KEY, id);
     setTranscript('');
     setExtractError(null);
     setEditing(false);
+    setEditingPatient(false);
     setDoseEdits({});
   };
 
@@ -158,8 +195,22 @@ export default function ClinicPage() {
         {/* Patient roster — the clinician creates records and issues codes. */}
         <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-line bg-white p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mint-strong">
-              New patient
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mint-strong">
+                {editingPatient ? `Edit ${selected?.name ?? 'patient'}` : 'New patient'}
+              </span>
+              {editingPatient ? (
+                <button
+                  onClick={() => {
+                    setEditingPatient(false);
+                    setNewName('');
+                    setNewDetails('');
+                  }}
+                  className="text-[11px] font-semibold text-muted hover:text-ink"
+                >
+                  Cancel
+                </button>
+              ) : null}
             </div>
             <Input
               className="mt-2"
@@ -182,13 +233,34 @@ export default function ClinicPage() {
               isDisabled={creating || !newName.trim()}
               className="mt-3 w-full rounded-xl bg-mint py-5 text-[13px] font-semibold text-ink2 data-[hovered=true]:opacity-90 data-[disabled=true]:bg-line data-[disabled=true]:text-muted"
             >
-              {creating ? 'Creating…' : 'Create record'}
+              {creating ? 'Saving…' : editingPatient ? 'Update record' : 'Create record'}
             </Button>
           </div>
 
           <div className="flex-1 overflow-hidden rounded-2xl border border-line bg-white">
-            <div className="border-b border-line px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
-              Patients ({records.length})
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+                Patients ({records.length})
+              </span>
+              {(() => {
+                const active = records.filter((r) => r.planSent);
+                if (!active.length) return null;
+                const avg = Math.round(
+                  (active.reduce((sum, r) => sum + r.tasksDone.length, 0) /
+                    (active.length * DAILY_TASK_COUNT)) *
+                    100,
+                );
+                return (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${
+                      avg >= 50 ? 'bg-mint-wash text-mint-strong' : 'bg-ochre-wash text-ochre'
+                    }`}
+                    title="Average of today's task completion across patients on a plan"
+                  >
+                    {avg}% on track today
+                  </span>
+                );
+              })()}
             </div>
             <div className="divide-y divide-line overflow-y-auto">
               {records.length === 0 ? (
@@ -224,10 +296,56 @@ export default function ClinicPage() {
                       {r.details ? (
                         <div className="mt-0.5 truncate text-[12px] text-muted">{r.details}</div>
                       ) : null}
+                      {r.planSent ? (
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <span className="text-[11.5px] font-semibold text-ochre">
+                            🔥 {r.streakDays}d streak
+                          </span>
+                          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-paper-2">
+                            <span
+                              className="block h-full rounded-full bg-mint"
+                              style={{
+                                width: `${Math.min(100, Math.round((r.tasksDone.length / DAILY_TASK_COUNT) * 100))}%`,
+                              }}
+                            />
+                          </span>
+                          <span className="text-[11px] font-medium text-muted">
+                            {r.tasksDone.length}/{DAILY_TASK_COUNT} today
+                          </span>
+                        </div>
+                      ) : null}
                       {active && !r.profile ? (
                         <div className="mt-1.5 rounded-lg bg-white px-2 py-1.5 text-[11.5px] leading-snug text-muted">
                           Give the patient this code — they enter it in the app to open their
                           record.
+                        </div>
+                      ) : null}
+                      {active ? (
+                        <div className="mt-1.5 flex gap-2">
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingPatient(true);
+                              setNewName(r.name);
+                              setNewDetails(r.details ?? '');
+                            }}
+                            className="rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-muted hover:text-ink"
+                          >
+                            Edit
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDelete(r.id, r.name);
+                            }}
+                            className="rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-clay hover:opacity-80"
+                          >
+                            Delete
+                          </span>
                         </div>
                       ) : null}
                     </button>

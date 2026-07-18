@@ -55,6 +55,10 @@ export const logEntry = (
 export const resetDemo = () => postState({ action: 'reset' });
 export const createPatient = (name: string, details?: string) =>
   postState({ action: 'createPatient', name, details });
+export const updatePatient = (patientId: string, patch: { name?: string; details?: string }) =>
+  postState({ action: 'updatePatient', patientId, ...patch });
+export const deletePatient = (patientId: string) =>
+  postState({ action: 'deletePatient', patientId });
 export const extractPlan = (patientId: string, transcript: string) =>
   postState({ action: 'extract', patientId, transcript });
 export const sendPlan = (patientId: string, plan?: PlanPatch) =>
