@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Input } from '@heroui/react';
 import type { PlanPatch } from '@cadence/shared';
-import { CONSULT_TRANSCRIPT, DAILY_TASK_COUNT } from '@cadence/shared';
+import {
+  buildDailyTasks,
+  CONSULT_TRANSCRIPT,
+  currentTitrationStepIndex,
+  DAILY_TASK_COUNT,
+} from '@cadence/shared';
 import {
   createPatient as createPatientAction,
   deletePatient as deletePatientAction,
@@ -40,8 +45,6 @@ const TABS: { id: ClinicTab; label: string }[] = [
   { id: 'audit', label: 'Audit log' },
 ];
 
-const SELECTED_KEY = 'cadence.clinic.selectedId';
-
 export default function ClinicPage() {
   const { state, setState } = usePollState();
   const [tab, setTab] = useState<ClinicTab>(
@@ -66,6 +69,21 @@ export default function ClinicPage() {
   const records = state?.records ?? [];
   const inbox = state?.inbox ?? [];
   const auditLog = state?.auditLog ?? [];
+  // patientId → current titration dose, giving inbox flags their med context.
+  const currentDose = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const r of records) {
+      const steps = r.plan?.titrationSteps ?? [];
+      if (steps.length) {
+        const step = steps[currentTitrationStepIndex(steps, r.planSentAt)];
+        map[r.id] = `${step.dose} (${step.label.toLowerCase()})`;
+      }
+    }
+    return map;
+  }, [records]);
+  // Per-record task denominator, derived from the actual plan.
+  const taskCount = (r: (typeof records)[number]) =>
+    buildDailyTasks(r.plan).length || DAILY_TASK_COUNT;
   const selected = records.find((r) => r.id === selectedId) ?? null;
   const unread = inbox.filter((i) => !i.read).length;
 
@@ -343,8 +361,8 @@ export default function ClinicPage() {
                 const active = records.filter((r) => r.planSent);
                 if (!active.length) return null;
                 const avg = Math.round(
-                  (active.reduce((sum, r) => sum + r.tasksDone.length, 0) /
-                    (active.length * DAILY_TASK_COUNT)) *
+                  (active.reduce((sum, r) => sum + r.tasksDone.length / taskCount(r), 0) /
+                    active.length) *
                     100,
                 );
                 return (
@@ -402,12 +420,12 @@ export default function ClinicPage() {
                             <span
                               className="block h-full rounded-full bg-mint"
                               style={{
-                                width: `${Math.min(100, Math.round((r.tasksDone.length / DAILY_TASK_COUNT) * 100))}%`,
+                                width: `${Math.min(100, Math.round((r.tasksDone.length / taskCount(r)) * 100))}%`,
                               }}
                             />
                           </span>
                           <span className="text-[11px] font-medium text-muted">
-                            {r.tasksDone.length}/{DAILY_TASK_COUNT} today
+                            {r.tasksDone.length}/{taskCount(r)} today
                           </span>
                         </div>
                       ) : null}
@@ -501,7 +519,9 @@ export default function ClinicPage() {
         )
       ) : null}
 
-      {tab === 'inbox' ? <InboxPanel items={inbox} onMarkRead={markRead} /> : null}
+      {tab === 'inbox' ? (
+        <InboxPanel items={inbox} onMarkRead={markRead} currentDose={currentDose} />
+      ) : null}
 
       {tab === 'audit' ? <AuditPanel entries={auditLog} /> : null}
     </main>

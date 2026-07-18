@@ -12,9 +12,12 @@ const SEVERITY_STYLE: Record<CheckInSeverity, string> = {
 export default function InboxPanel({
   items,
   onMarkRead,
+  currentDose,
 }: {
   items: InboxItem[];
   onMarkRead: (id: string) => void;
+  // patientId → current titration dose, so a flag reads with its med context.
+  currentDose?: Record<string, string>;
 }) {
   const unread = items.filter((i) => !i.read).length;
   return (
@@ -82,16 +85,16 @@ export default function InboxPanel({
                     &ldquo;{item.checkIn.note}&rdquo;
                   </p>
                 ) : null}
-                <p className="mt-2 flex items-center gap-1.5 text-[13px] text-muted">
+                <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px] text-muted">
                   <span className="h-1.5 w-1.5 rounded-full bg-mint" />
                   {isGlucose
-                    ? 'Above the threshold you set.'
+                    ? 'Outside the threshold you set.'
                     : 'Companion served the approved protocol.'}
-                  {item.response.escalate ? (
-                    <span className="font-medium text-clay">Escalated to you.</span>
-                  ) : (
-                    <span>No escalation.</span>
-                  )}
+                  {currentDose?.[item.patientId] ? (
+                    <span className="font-medium text-ink/70">
+                      Currently on {currentDose[item.patientId]}.
+                    </span>
+                  ) : null}
                 </p>
                 {loggedAt ? (
                   <p className="mt-1 text-[11px] text-muted/70">

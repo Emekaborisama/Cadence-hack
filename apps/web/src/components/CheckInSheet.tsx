@@ -40,17 +40,28 @@ function Face({ level, active }: { level: CheckInSeverity; active: boolean }) {
 
 export default function CheckInSheet({
   patientId,
+  initialSymptom,
+  initialSeverity,
   onClose,
   onSubmitted,
 }: {
   patientId: string;
+  initialSymptom?: string;
+  initialSeverity?: CheckInSeverity;
   onClose: () => void;
   onSubmitted: (response: CheckInResponse) => void;
 }) {
-  const [symptom, setSymptom] = useState('Nausea');
-  const [severity, setSeverity] = useState<CheckInSeverity>('moderate');
-  const [note, setNote] = useState('Feeling queasy since starting the injection.');
+  const [symptom, setSymptom] = useState(initialSymptom ?? 'Nausea');
+  const [severity, setSeverity] = useState<CheckInSeverity>(initialSeverity ?? 'moderate');
+  const [note, setNote] = useState(
+    initialSymptom ? '' : 'Feeling queasy since starting the injection.',
+  );
   const [submitting, setSubmitting] = useState(false);
+  // A red-flag symptom arrives from outside the standard chip list — show it
+  // as a selectable chip so the patient sees exactly what they're reporting.
+  const symptoms = initialSymptom && !SYMPTOMS.includes(initialSymptom)
+    ? [initialSymptom, ...SYMPTOMS]
+    : SYMPTOMS;
 
   async function submit() {
     setSubmitting(true);
@@ -88,7 +99,7 @@ export default function CheckInSheet({
 
         {/* symptom chips */}
         <div className="mt-4 flex flex-wrap gap-2">
-          {SYMPTOMS.map((s) => {
+          {symptoms.map((s) => {
             const on = symptom === s;
             return (
               <button

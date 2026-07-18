@@ -26,6 +26,8 @@ export default function PatientPage() {
   );
   const [tab, setTab] = useState<PatientTab>('today');
   const [checkInOpen, setCheckInOpen] = useState(false);
+  // Pre-filled check-in when the patient taps a red flag on the Plan tab.
+  const [checkInPrefill, setCheckInPrefill] = useState<{ symptom: string } | null>(null);
   const [glucoseOpen, setGlucoseOpen] = useState(false);
   const [checkInResponse, setCheckInResponse] = useState<CheckInResponse | null>(null);
   const [glucoseResult, setGlucoseResult] = useState<CheckInResponse | null>(null);
@@ -110,8 +112,13 @@ export default function PatientPage() {
                 <PlanTab
                   patientId={record.id}
                   plan={record.plan}
+                  planSentAt={record.planSentAt}
                   explainer={record.explainer}
                   onExplainerLoaded={setExplainer}
+                  onReportSymptom={(symptom) => {
+                    setCheckInPrefill({ symptom });
+                    setCheckInOpen(true);
+                  }}
                 />
               ) : null}
               {tab === 'progress' ? (
@@ -131,10 +138,16 @@ export default function PatientPage() {
         {checkInOpen && record ? (
           <CheckInSheet
             patientId={record.id}
-            onClose={() => setCheckInOpen(false)}
+            initialSymptom={checkInPrefill?.symptom}
+            initialSeverity={checkInPrefill ? 'severe' : undefined}
+            onClose={() => {
+              setCheckInOpen(false);
+              setCheckInPrefill(null);
+            }}
             onSubmitted={(r) => {
               setCheckInResponse(r);
               setCheckInOpen(false);
+              setCheckInPrefill(null);
               setTab('today');
             }}
           />
